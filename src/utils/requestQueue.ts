@@ -2,6 +2,60 @@ import pLimit from 'p-limit';
 import { v4 as uuidv4 } from 'uuid';
 
 // Request priorities
+// Function to merge requests by title to handle duplicates
+export function mergeRequestsByTitle(requests: SongRequest[]): SongRequest[] {
+  if (!requests || !Array.isArray(requests)) {
+    return [];
+  }
+  
+  const requestMap = new Map<string, SongRequest>();
+
+  requests.forEach(request => {
+    if (!request) return;
+    
+    const key = `${request.title.toLowerCase()}|${(request.artist || '').toLowerCase()}`;
+    
+    if (requestMap.has(key)) {
+      const existing = requestMap.get(key)!;
+      
+      // Combine requesters, ensuring we don't have duplicates by name
+      let updateRequesters = existing.requesters ? [...existing.requesters] : [];
+      
+      if (Array.isArray(request.requesters) && request.requesters.length > 0) {
+        const existingNames = new Set(updateRequesters.map(r => r.name));
+        request.requesters.forEach(requester => {
+          if (!existingNames.has(requester.name)) {
+            updateRequesters.push(requester);
+          } else {
+            // If there's a duplicate name but this one has a message, add it anyway
+            if (requester.message) {
+              updateRequesters.push(requester);
+            }
+          }
+        });
+      }
+      
+      requestMap.set(key, {
+        ...existing,
+        requesters: updateRequesters,
+        votes: (existing.votes || 0) + (request.votes || 0),
+        isLocked: existing.isLocked || request.isLocked
+      });
+    } else {
+      // Make sure requesters is a defined array
+      const requesters = Array.isArray(request.requesters) ? request.requesters : [];
+      
+      requestMap.set(key, {
+        ...request,
+        requesters: requesters,
+        votes: request.votes || 0
+      });
+    }
+  });
+
+  return Array.from(requestMap.values());
+}
+
 export enum RequestPriority {
   HIGH = 0,
   MEDIUM = 1,

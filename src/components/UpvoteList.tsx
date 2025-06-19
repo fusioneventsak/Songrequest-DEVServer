@@ -52,22 +52,21 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
   const handleVote = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
 
-    if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
+    if (!currentUserId || votingStates.has(id)) {
       // FIXED: Allow voting with just a name, don't require complete profile
-      if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
-        console.log('Cannot vote: missing user ID or already voting');
-      }
+      console.log('Cannot vote: missing user ID or already voting');
+      return;
+    }
 
-      try {
-        const success = await onVote(id);
-        
-        if (success) {
-          console.log('Vote successful');
-        }
-      } catch (error) {
-        console.error('Vote failed:', error);
-        toast.error('Failed to vote. Please try again.');
+    try {
+      const success = await onVote(id);
+      
+      if (success) {
+        console.log('Vote successful');
       }
+    } catch (error) {
+      console.error('Vote failed:', error);
+      toast.error('Failed to vote. Please try again.');
     }
   };
 
