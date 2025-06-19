@@ -73,10 +73,27 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
         <p className="text-gray-400 text-xl mb-2">No active requests to vote on</p>
         <p className="text-gray-500 text-lg">
           {requests?.length > 0 
-            ? 'All current requests have been played or removed'
-            : 'Be the first to request a song!'
+            ? `Found ${requests.length} total requests, but ${requests.filter(r => r.isPlayed).length} are marked as played`
+            : 'No requests found - be the first to request a song!'
           }
         </p>
+        
+        {/* DEBUG INFO */}
+        <div className="bg-gray-800 p-4 rounded mt-4 text-xs text-left max-w-md mx-auto">
+          <div className="text-gray-300 mb-2">Debug Info:</div>
+          <div>Total requests received: {requests?.length || 0}</div>
+          <div>Current user ID: {currentUserId || 'None'}</div>
+          {requests?.length > 0 && (
+            <div className="mt-2">
+              <div>Request statuses:</div>
+              {requests.slice(0, 5).map(r => (
+                <div key={r.id} className="ml-2 text-gray-400">
+                  • {r.title}: isPlayed={String(r.isPlayed)}, votes={r.votes || 0}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -262,6 +279,15 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
             </div>
           );
         })}
+      </div>
+      
+      {/* DEBUG INFO at bottom */}
+      <div className="mt-8 bg-gray-800 p-4 rounded text-xs">
+        <div className="text-gray-300 mb-2">UpvoteList Debug:</div>
+        <div>Requests received: {requests?.length || 0}</div>
+        <div>Active requests: {activeRequests.length}</div>
+        <div>Current user: {currentUserId || 'None'}</div>
+        <div>Voting states: {votingStates.size}</div>
       </div>
     </div>
   );
