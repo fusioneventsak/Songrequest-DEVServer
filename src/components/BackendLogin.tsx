@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { LogIn, Loader2 } from 'lucide-react';
 
-interface BackendLoginProps {
+export interface BackendLoginProps {
   onLogin: () => void;
+  onBack?: () => void;
 }
 
-export function BackendLogin({ onLogin }: BackendLoginProps) {
+export default function BackendLogin({ onLogin, onBack }: BackendLoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +57,7 @@ export function BackendLogin({ onLogin }: BackendLoginProps) {
           <h1 className="text-2xl font-bold text-white neon-text mb-2">
             Band Request Hub
           </h1>
-          <p className="text-gray-300">
+          <p className="text-gray-300 mb-4">
             Please log in to access the backend
           </p>
         </div>
@@ -116,6 +117,15 @@ export function BackendLogin({ onLogin }: BackendLoginProps) {
             )}
           </button>
         </form>
+        
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mt-4 w-full text-center text-gray-400 hover:text-white text-sm"
+          >
+            ← Back to public view
+          </button>
+        )}
       </div>
     </div>
   );
