@@ -49,6 +49,10 @@ function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [requests, setRequestsState] = useState<SongRequest[]>([]);
   
+  // 🚀 NEW: Optimistic update states for instant UI feedback
+  const [optimisticRequests, setOptimisticRequests] = useState<Map<string, Partial<SongRequest>>>(new Map());
+  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+  
   // Debug wrapper for setRequests
   const setRequests = useCallback((newRequests: any) => {
     console.log('🔄 setRequests called with:', newRequests);
@@ -83,6 +87,85 @@ function App() {
   const { isLoading: isFetchingRequests, reconnect: reconnectRequests } = useRequestSync(setRequests);
   const { isLoading: isFetchingSetLists, refetch: refreshSetLists } = useSetListSync(setSetLists);
 
+  // 🚀 NEW: Create merged requests with optimistic updates for all components
+  const mergedRequests = useMemo(() => {
+    console.log('🔀 App: Merging requests:', {
+      realRequests: requests.length,
+      optimisticRequests: optimisticRequests.size,
+      optimisticVotes: optimisticVotes.size
+    });
+
+    // Start with real requests and apply optimistic vote updates
+    const realRequestsWithVotes = requests.map(req => {
+      const optimisticVoteCount = optimisticVotes.get(req.id);
+      const result = {
+        ...req,
+        votes: optimisticVoteCount ?? req.votes ?? 0
+      };
+      
+      if (optimisticVoteCount !== undefined) {
+        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
+      }
+      
+      return result;
+    });
+
+    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
+    const optimisticRequestsList = Array.from(optimisticRequests.values())
+      .filter(optReq => {
+        // Only include if it's a temp request AND not already in real requests
+        const isTemp = optReq.id?.startsWith('temp_');
+        const existsInReal = requests.some(realReq => 
+          realReq.title === optReq.title && realReq.artist === optReq.artist
+        );
+        
+        const shouldInclude = isTemp && !existsInReal;
+        
+        if (isTemp) {
+          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
+        }
+        
+        return shouldInclude;
+      });
+
+    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
+    
+    console.log('✅ Final merged requests:', {
+      total: result.length,
+      real: realRequestsWithVotes.length,
+      optimistic: optimisticRequestsList.length,
+      titles: result.map(r => r.title)
+    });
+
+    return result;
+  }, [requests, optimisticRequests, optimisticVotes]);
+
+  // 🚀 NEW: Cleanup old optimistic requests
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      const now = Date.now();
+      setOptimisticRequests(prev => {
+        const newMap = new Map(prev);
+        let hasChanges = false;
+        
+        for (const [id, request] of newMap.entries()) {
+          if (id.startsWith('temp_')) {
+            const timestamp = parseInt(id.replace('temp_', ''));
+            if (now - timestamp > 15000) { // 15 seconds
+              console.log('🧹 Emergency cleanup of old optimistic request:', request.title);
+              newMap.delete(id);
+              hasChanges = true;
+            }
+          }
+        }
+        
+        return hasChanges ? newMap : prev;
+      });
+    }, 5000);
+
+    return () => clearInterval(cleanup);
+  }, []);
+
   // SUPABASE CONNECTION TEST
   useEffect(() => {
     const testSupabaseConnection = async () => {
@@ -91,7 +174,6 @@ function App() {
       console.log('Has Anon Key:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
       
       try {
-        // Test basic connection with a simple select query
         const { data, error } = await supabase
           .from('requests')
           .select('id')
@@ -99,136 +181,30 @@ function App() {
         
         if (error) {
           console.error('❌ Supabase connection failed:', error);
-          console.error('Error details:', {
-            message: error.message,
-            code: error.code,
-            details: error.details,
-            hint: error.hint
-          });
-          
-          // Check if it's a URL issue
-          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            console.error('🌐 This looks like a network/URL issue');
-            console.log('Current URL being used:', import.meta.env.VITE_SUPABASE_URL);
-            
-            // Check if URL ends with .co instead of .com
-            const url = import.meta.env.VITE_SUPABASE_URL;
-            if (url && url.includes('.supabase.co')) {
-              console.log('✅ URL looks correct (uses .supabase.co)');
-            } else {
-              console.log('⚠️ URL might be incorrect - should end with .supabase.co');
-            }
-          }
         } else {
           console.log('✅ Supabase connection successful!');
-          console.log('Connection test result:', data ? 'Data accessible' : 'No data found');
-          
-          // Now test if we can fetch actual requests
-          try {
-            const { data: requestsData, error: requestsError } = await supabase
-              .from('requests')
-              .select('id, title, is_played')
-              .limit(5);
-              
-            if (requestsError) {
-              console.error('❌ Error fetching requests:', requestsError);
-            } else {
-              console.log('✅ Sample requests fetched:', requestsData?.length || 0);
-              console.log('Sample data:', requestsData);
-            }
-          } catch (fetchError) {
-            console.error('❌ Error in request fetch:', fetchError);
-          }
         }
       } catch (connectionError) {
         console.error('❌ Connection test failed:', connectionError);
       }
     };
     
-    // Run the test after a short delay
     setTimeout(testSupabaseConnection, 1000);
   }, []);
-
-  // Environment Check
-  console.log('🔧 Environment Check:', {
-    hasSupabaseUrl: !!import.meta.env.VITE_SUPABASE_URL,
-    urlLength: import.meta.env.VITE_SUPABASE_URL?.length || 0,
-    urlPreview: import.meta.env.VITE_SUPABASE_URL?.substring(0, 30) + '...',
-    hasAnonKey: !!import.meta.env.VITE_SUPABASE_ANON_KEY,
-    keyLength: import.meta.env.VITE_SUPABASE_ANON_KEY?.length || 0
-  });
-
-  // DEBUG REQUESTS FLOW
-  useEffect(() => {
-    const debugRequests = async () => {
-      console.log('🔍 DEBUG: Checking requests in database...');
-      
-      try {
-        // Check raw requests table
-        const { data: rawRequests, error: rawError } = await supabase
-          .from('requests')
-          .select('*')
-          .order('created_at', { ascending: false });
-        
-        if (rawError) {
-          console.error('❌ Error fetching raw requests:', rawError);
-        } else {
-          console.log('✅ Raw requests in database:', rawRequests?.length || 0);
-          console.table(rawRequests);
-        }
-        
-        // Check requests with requesters
-        const { data: requestsWithRequesters, error: requestersError } = await supabase
-          .from('requests')
-          .select(`
-            *,
-            requesters (
-              id,
-              name,
-              photo,
-              message,
-              created_at
-            )
-          `)
-          .order('created_at', { ascending: false });
-        
-        if (requestersError) {
-          console.error('❌ Error fetching requests with requesters:', requestersError);
-        } else {
-          console.log('✅ Requests with requesters:', requestsWithRequesters?.length || 0);
-          console.table(requestsWithRequesters);
-        }
-        
-        // Check current state
-        console.log('📊 Current App State:');
-        console.log('- requests state length:', requests.length);
-        console.log('- requests state data:', requests);
-        
-      } catch (error) {
-        console.error('❌ Debug error:', error);
-      }
-    };
-    
-    // Run debug after 3 seconds to let other fetches complete
-    setTimeout(debugRequests, 3000);
-  }, [requests]);
 
   // Global error handler for unhandled promise rejections
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       console.error('Unhandled Promise Rejection:', event.reason);
       
-      // Don't show errors for aborted requests or unmounted components
       const errorMessage = event.reason?.message || String(event.reason);
       if (errorMessage.includes('aborted') || 
           errorMessage.includes('Component unmounted') ||
           errorMessage.includes('channel closed')) {
-        // Silently handle these errors
         event.preventDefault();
         return;
       }
       
-      // Show toast for network errors
       if (errorMessage.includes('Failed to fetch') || 
           errorMessage.includes('NetworkError') || 
           errorMessage.includes('network')) {
@@ -237,12 +213,10 @@ function App() {
         return;
       }
       
-      // Show generic error for other unhandled errors
       toast.error('An error occurred. Please try again later.');
       event.preventDefault();
     };
 
-    // Listen for unhandled promise rejections
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
     
     return () => {
@@ -255,11 +229,8 @@ function App() {
     const handleOnline = () => {
       console.log('🌐 Network connection restored');
       setIsOnline(true);
-      
-      // Attempt to reconnect and refresh data
       reconnectRequests();
       refreshSetLists();
-      
       toast.success('Network connection restored');
     };
 
@@ -269,14 +240,12 @@ function App() {
       toast.error('Network connection lost. You can still view cached content.');
     };
 
-    // Handle page visibility changes
     const handleVisibilityChange = () => {
       const isVisible = document.visibilityState === 'visible';
       setIsAppActive(isVisible);
       
       if (isVisible) {
         console.log('📱 App is now active. Refreshing data...');
-        // Refresh data when app becomes visible again
         reconnectRequests();
         refreshSetLists();
       } else {
@@ -326,11 +295,9 @@ function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // Check for backend auth in localStorage first
         const hasAuth = localStorage.getItem('backendAuth') === 'true';
         setIsAdmin(hasAuth);
         
-        // Check for stored user
         const savedUser = localStorage.getItem('currentUser');
         if (savedUser) {
           try {
@@ -352,7 +319,6 @@ function App() {
   useEffect(() => {
     const active = setLists.find(sl => sl.isActive);
     
-    // Log active set list changes
     if (active) {
       console.log(`Active set list updated in App: ${active.name} (${active.id})`);
     } else if (setLists.length > 0) {
@@ -401,20 +367,17 @@ function App() {
   // Handle user update with enhanced photo support
   const handleUserUpdate = useCallback(async (user: User) => {
     try {
-      // Validate final user data
       if (!user.name.trim()) {
         toast.error('Please enter your name');
         return;
       }
 
-      // Update user state and save to localStorage
       setCurrentUser(user);
       
       try {
         localStorage.setItem('currentUser', JSON.stringify(user));
       } catch (e) {
         console.error('Error saving user to localStorage:', e);
-        // Still proceed even if localStorage fails
         toast.warning('Profile updated but could not be saved locally');
       }
       
@@ -430,7 +393,7 @@ function App() {
     // Empty function to handle logo clicks
   }, []);
 
-  // Handle song request submission with retry logic and enhanced photo support
+  // 🚀 UPDATED: Enhanced song request submission with optimistic updates
   const handleSubmitRequest = useCallback(async (data: RequestFormData): Promise<boolean> => {
     if (requestInProgressRef.current) {
       console.log('Request already in progress, please wait...');
@@ -440,8 +403,32 @@ function App() {
     
     requestInProgressRef.current = true;
 
+    // 🚀 NEW: Create optimistic request immediately
+    const tempId = `temp_${Date.now()}`;
+    const optimisticRequest: SongRequest = {
+      id: tempId,
+      title: data.title,
+      artist: data.artist || '',
+      votes: 0,
+      isLocked: false,
+      isPlayed: false,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      requesters: [{
+        id: currentUser?.id || currentUser?.name || 'unknown',
+        name: data.requestedBy,
+        photo: data.userPhoto || generateDefaultAvatar(data.requestedBy),
+        message: data.message || '',
+        timestamp: new Date().toISOString()
+      }]
+    };
+
+    // INSTANT UI UPDATE - Add to optimistic state
+    setOptimisticRequests(prev => new Map([...prev, [tempId, optimisticRequest]]));
+    console.log('➕ Added optimistic request:', data.title);
+
     try {
-      // First check if the song is already requested - use maybeSingle() instead of single()
+      // Check if the song is already requested
       const { data: existingRequest, error: checkError } = await supabase
         .from('requests')
         .select('id, title')
@@ -449,14 +436,13 @@ function App() {
         .eq('is_played', false)
         .maybeSingle();
 
-      if (checkError && checkError.code !== 'PGRST116') { // Not found is ok
+      if (checkError && checkError.code !== 'PGRST116') {
         throw checkError;
       }
 
       let requestId: string;
 
       if (existingRequest) {
-        // For kiosk mode, we always add a new requester even if song is already requested
         requestId = existingRequest.id;
         
         // Add requester to existing request
@@ -506,15 +492,39 @@ function App() {
         if (requesterError) throw requesterError;
       }
 
-      // Reset retry count on success
+      // Success - clean up optimistic request after real data arrives
+      setTimeout(() => {
+        if (mountedRef.current) {
+          const realRequestExists = requests.some(req => 
+            req.title === data.title && req.artist === (data.artist || '')
+          );
+          
+          if (realRequestExists) {
+            console.log('🧹 Removing optimistic request, real data found:', data.title);
+            setOptimisticRequests(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(tempId);
+              return newMap;
+            });
+          }
+        }
+      }, 3000);
+
       requestRetriesRef.current = 0;
-      
       toast.success('Your request has been added to the queue!');
       return true;
     } catch (error) {
       console.error('Error submitting request:', error);
       
-      // If we get channel closed errors, attempt to reconnect
+      // Remove failed optimistic request immediately
+      console.log('❌ Request failed, removing optimistic request:', data.title);
+      setOptimisticRequests(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(tempId);
+        return newMap;
+      });
+      
+      // Handle retries for network errors
       if (error instanceof Error && 
           (error.message.includes('channel') || 
            error.message.includes('Failed to fetch') || 
@@ -522,11 +532,10 @@ function App() {
         
         reconnectRequests();
         
-        // Try to retry the request automatically
         if (requestRetriesRef.current < MAX_REQUEST_RETRIES) {
           requestRetriesRef.current++;
           
-          const delay = Math.pow(2, requestRetriesRef.current) * 1000; // Exponential backoff
+          const delay = Math.pow(2, requestRetriesRef.current) * 1000;
           console.log(`Automatically retrying request in ${delay/1000} seconds (attempt ${requestRetriesRef.current}/${MAX_REQUEST_RETRIES})...`);
           
           setTimeout(() => {
@@ -549,16 +558,14 @@ function App() {
         toast.error('Failed to submit request. Please try again.');
       }
       
-      // Reset retry count on giving up
       requestRetriesRef.current = 0;
-      
       return false;
     } finally {
       requestInProgressRef.current = false;
     }
-  }, [reconnectRequests]);
+  }, [reconnectRequests, currentUser, requests]);
 
-  // 🔧 FIXED - Handle request vote with atomic database function
+  // 🚀 UPDATED: Enhanced vote handler with atomic database function and optimistic updates
   const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
     if (!isOnline) {
       toast.error('Cannot vote while offline. Please check your internet connection.');
@@ -570,6 +577,18 @@ function App() {
         throw new Error('You must be logged in to vote');
       }
 
+      // Don't allow voting on temporary requests
+      if (id.startsWith('temp_')) {
+        toast.error('Please wait for the request to be processed before voting');
+        return false;
+      }
+
+      // INSTANT UI UPDATE - Optimistically increment vote
+      const currentRequest = requests.find(r => r.id === id);
+      const currentVotes = optimisticVotes.get(id) ?? currentRequest?.votes ?? 0;
+      setOptimisticVotes(prev => new Map([...prev, [id, currentVotes + 1]]));
+      console.log(`📊 Optimistically incremented vote for request ${id}: ${currentVotes} -> ${currentVotes + 1}`);
+
       // Use the atomic database function for voting
       const { data, error } = await supabase.rpc('add_vote', {
         p_request_id: id,
@@ -578,16 +597,42 @@ function App() {
 
       if (error) throw error;
 
-      // The function returns true if vote was added, false if already voted
       if (data === true) {
         toast.success('Vote added!');
+        
+        // Keep optimistic vote for a moment, then let real data take over
+        setTimeout(() => {
+          if (mountedRef.current) {
+            console.log(`🧹 Removing optimistic vote for request ${id}`);
+            setOptimisticVotes(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(id);
+              return newMap;
+            });
+          }
+        }, 1500);
+        
         return true;
       } else {
+        // Revert optimistic update if already voted
+        setOptimisticVotes(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(id);
+          return newMap;
+        });
+        
         toast.error('You have already voted for this request');
         return false;
       }
     } catch (error) {
       console.error('Error voting for request:', error);
+      
+      // Revert optimistic update on error
+      setOptimisticVotes(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
       
       if (error instanceof Error && (
         error.message.includes('Failed to fetch') || 
@@ -601,7 +646,7 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline]);
+  }, [currentUser, isOnline, requests, optimisticVotes]);
 
   // Handle locking a request (marking it as next)
   const handleLockRequest = useCallback(async (id: string) => {
@@ -611,7 +656,7 @@ function App() {
     }
     
     try {
-      const requestToUpdate = requests.find(r => r.id === id);
+      const requestToUpdate = mergedRequests.find(r => r.id === id);
       if (!requestToUpdate) return;
       
       // Toggle the locked status
@@ -631,7 +676,7 @@ function App() {
       console.error('Error toggling request lock:', error);
       toast.error('Failed to update request. Please try again.');
     }
-  }, [requests, isOnline]);
+  }, [mergedRequests, isOnline]);
 
   // Handle marking a request as played
   const handleMarkPlayed = useCallback(async (id: string) => {
@@ -676,6 +721,11 @@ function App() {
         .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
 
       if (error) throw error;
+      
+      // Also clear optimistic state
+      setOptimisticRequests(new Map());
+      setOptimisticVotes(new Map());
+      
       toast.success('Queue cleared successfully!');
     } catch (error) {
       console.error('Error clearing queue:', error);
@@ -708,10 +758,8 @@ function App() {
     }
     
     try {
-      // Extract songs from the set list to handle separately
       const { songs, ...setListData } = newSetList;
       
-      // Convert camelCase to snake_case for database
       const dbSetListData = {
         name: setListData.name,
         date: setListData.date,
@@ -719,7 +767,6 @@ function App() {
         is_active: setListData.isActive || false
       };
       
-      // Insert the set list
       const { data, error } = await supabase
         .from('set_lists')
         .insert(dbSetListData)
@@ -728,7 +775,6 @@ function App() {
       if (error) throw error;
       
       if (data && songs && songs.length > 0) {
-        // Insert songs with positions
         const songMappings = songs.map((song, index) => ({
           set_list_id: data[0].id,
           song_id: song.id,
@@ -743,7 +789,7 @@ function App() {
       }
       
       toast.success('Set list created successfully');
-      refreshSetLists(); // Refresh to get latest data
+      refreshSetLists();
     } catch (error) {
       console.error('Error creating set list:', error);
       
@@ -769,7 +815,6 @@ function App() {
     try {
       const { id, songs, ...setListData } = updatedSetList;
       
-      // Convert camelCase to snake_case for database
       const dbSetListData = {
         name: setListData.name,
         date: setListData.date,
@@ -777,7 +822,6 @@ function App() {
         is_active: setListData.isActive || false
       };
       
-      // Update set list data
       const { error } = await supabase
         .from('set_lists')
         .update(dbSetListData)
@@ -785,7 +829,6 @@ function App() {
         
       if (error) throw error;
       
-      // Clear existing songs
       const { error: deleteError } = await supabase
         .from('set_list_songs')
         .delete()
@@ -793,7 +836,6 @@ function App() {
         
       if (deleteError) throw deleteError;
       
-      // Insert updated songs
       if (songs && songs.length > 0) {
         const songMappings = songs.map((song, index) => ({
           set_list_id: id,
@@ -809,7 +851,7 @@ function App() {
       }
       
       toast.success('Set list updated successfully');
-      refreshSetLists(); // Refresh to get latest data
+      refreshSetLists();
     } catch (error) {
       console.error('Error updating set list:', error);
       
@@ -833,7 +875,6 @@ function App() {
     }
     
     try {
-      // Set list songs will be deleted via cascade
       const { error } = await supabase
         .from('set_lists')
         .delete()
@@ -866,15 +907,12 @@ function App() {
     
     try {
       console.log(`Activating/deactivating set list ${id}`);
-      // Get the current set list
       const setList = setLists.find(sl => sl.id === id);
       if (!setList) return;
       
-      // Toggle active state
       const newActiveState = !setList.isActive;
       console.log(`Setting set list ${id} active state to: ${newActiveState}`);
       
-      // Update in database (using snake_case for database field names)
       const { error } = await supabase
         .from('set_lists')
         .update({ is_active: newActiveState })
@@ -886,7 +924,6 @@ function App() {
         ? 'Set list activated successfully' 
         : 'Set list deactivated successfully');
         
-      // Force refresh set lists to ensure we get latest data with proper isActive state
       refreshSetLists();
     } catch (error) {
       console.error('Error toggling set list active state:', error);
@@ -946,13 +983,13 @@ function App() {
     return <BackendLogin onLogin={handleAdminLogin} />;
   }
 
-  // 🔧 FIXED - Show kiosk page if accessing /kiosk with proper props
+  // Show kiosk page if accessing /kiosk with proper props
   if (isKiosk) {
     return (
       <ErrorBoundary>
         <KioskPage 
           songs={songs}
-          requests={requests}
+          requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
           activeSetList={activeSetList}
           onSubmitRequest={handleSubmitRequest}
           onVoteRequest={handleVoteRequest}
@@ -964,8 +1001,7 @@ function App() {
 
   // Show backend if accessing /backend and authenticated
   if (isBackend && isAdmin) {
-    // Define lockedRequest variable before using it
-    const lockedRequest = requests.find(r => r.isLocked && !r.isPlayed);
+    const lockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
     
     return (
       <ErrorBoundary>
@@ -1028,7 +1064,7 @@ function App() {
                   <div className="glass-effect rounded-lg p-6">
                     <h2 className="text-xl font-semibold neon-text mb-4">Current Request Queue</h2>
                     <QueueView 
-                      requests={requests}
+                      requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
                       onLockRequest={handleLockRequest}
                       onMarkPlayed={handleMarkPlayed}
                       onResetQueue={handleResetQueue}
@@ -1112,12 +1148,12 @@ function App() {
     );
   }
 
-  // 🔧 FIXED - Show main frontend with proper props
+  // Show main frontend with merged requests
   return (
     <ErrorBoundary>
       <UserFrontend 
         songs={songs}
-        requests={requests}
+        requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
         activeSetList={activeSetList}
         currentUser={currentUser}
         onSubmitRequest={handleSubmitRequest}
