@@ -188,12 +188,13 @@ export function KioskPage({
 
     // INSTANT UI UPDATE - Optimistically increment vote immediately
     setOptimisticVotes(prev => new Map([...prev, [requestId, currentVotes + 1]]));
+    console.log(`📊 Optimistically incremented vote for request ${requestId}: ${currentVotes} -> ${currentVotes + 1}`);
 
     try {
       // Use atomic database function for instant voting (kiosk allows anonymous voting)
       const { data, error } = await supabase.rpc('add_vote', {
         p_request_id: requestId,
-        p_user_id: `kiosk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        p_user_id: `kiosk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
       });
 
       if (error) throw error;
@@ -218,6 +219,8 @@ export function KioskPage({
             });
           }
         }, 1500);
+        
+        return true;
       } else {
         // Revert optimistic update if voting failed
         setOptimisticVotes(prev => {
@@ -266,9 +269,21 @@ export function KioskPage({
       if (a.isLocked && !b.isLocked) return -1;
       if (!a.isLocked && b.isLocked) return 1;
       
-      // Then by total priority (requester count + votes)
-      const priorityA = (a.requesters?.length || 0) + (a.votes || 0);
-      const priorityB = (b.requesters?.length || 0) + (b.votes || 0);
+      // FIXED: Calculate priority based on requester count AND votes, ensuring we handle undefined values
+      const requestersA = Array.isArray(a.requesters) ? a.requesters.length : 0;
+      const requestersB = Array.isArray(b.requesters) ? b.requesters.length : 0;
+      const priorityA = requestersA + (a.votes || 0);
+      const priorityB = requestersB + (b.votes || 0);
+      
+      // First compare priority (requester count + upvotes)
+      if (priorityA !== priorityB) {
+        return priorityB - priorityA;
+      }
+      
+      // If priority is the same, then compare requester count
+      if (requestersA !== requestersB) {
+        return requestersB - requestersA;
+      }
       
       return priorityB - priorityA;
     });

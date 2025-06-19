@@ -1605,58 +1605,8 @@ function App() {
                   <ErrorBoundary>
                     <SettingsManager />
                   </ErrorBoundary>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </ErrorBoundary>
-    );
-  }
 
-  // Show landing page if no user is set up
-  if (!currentUser) {
-    return (
-      <ErrorBoundary>
-        <LandingPage onComplete={handleUserUpdate} />
-      </ErrorBoundary>
-    );
-  }
-
-  // Show main frontend with merged requests and locked song for ticker
-  const frontendLockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
-  console.log('🎯 Frontend: Looking for locked request for ticker...', {
-    totalRequests: mergedRequests.length,
-    lockedRequest: frontendLockedRequest ? {
-      id: frontendLockedRequest.id,
-      title: frontendLockedRequest.title,
-      artist: frontendLockedRequest.artist,
-      isLocked: frontendLockedRequest.isLocked,
-      isPlayed: frontendLockedRequest.isPlayed
-    } : null
-  });
-
-  return (
-    <ErrorBoundary>
-      <UserFrontend 
-        songs={songs}
-        requests={mergedRequests}
-        activeSetList={activeSetList}
-        currentUser={currentUser}
-        onSubmitRequest={handleSubmitRequest}
-        onVoteRequest={handleVoteRequest}
-        onUpdateUser={handleUserUpdate}
-        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
-        isAdmin={isAdmin}
-        onLogoClick={onLogoClick}
-        onBackendAccess={navigateToBackend}
-        lockedRequest={frontendLockedRequest} // Pass locked request for ticker
-      />
-    </ErrorBoundary>
-  );
-}
-
-export default App;Boundary>
+                  <ErrorBoundary>
                     <TickerManager 
                       nextSong={lockedRequest
                         ? {
@@ -1708,4 +1658,62 @@ export default App;Boundary>
                     />
                   </ErrorBoundary>
 
-                  <Error
+                  <ErrorBoundary>
+                    <ColorCustomizer isAdmin={isAdmin} />
+                  </ErrorBoundary>
+
+                  <ErrorBoundary>
+                    <SettingsManager />
+                  </ErrorBoundary>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
+  // Show landing page if no user is set up
+  if (!currentUser) {
+    return (
+      <ErrorBoundary>
+        <LandingPage onComplete={handleUserUpdate} />
+      </ErrorBoundary>
+    );
+  }
+
+  // Show main frontend with merged requests and locked song for ticker
+  const frontendLockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
+  console.log('🎯 Frontend: Looking for locked request for ticker...', {
+    totalRequests: mergedRequests.length,
+    lockedRequest: frontendLockedRequest ? {
+      id: frontendLockedRequest.id,
+      title: frontendLockedRequest.title,
+      artist: frontendLockedRequest.artist,
+      isLocked: frontendLockedRequest.isLocked,
+      isPlayed: frontendLockedRequest.isPlayed
+    } : null
+  });
+
+  return (
+    <ErrorBoundary>
+      <UserFrontend 
+        songs={songs}
+        requests={mergedRequests}
+        activeSetList={activeSetList}
+        currentUser={currentUser}
+        onSubmitRequest={handleSubmitRequest}
+        onVoteRequest={handleVoteRequest}
+        onUpdateUser={handleUserUpdate}
+        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
+        isAdmin={isAdmin}
+        onLogoClick={onLogoClick}
+        onBackendAccess={navigateToBackend}
+        lockedRequest={frontendLockedRequest} // Pass locked request for ticker
+      />
+    </ErrorBoundary>
+  );
+}
+
+export default App;
