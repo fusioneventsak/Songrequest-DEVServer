@@ -73,8 +73,9 @@ function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isAppActive, setIsAppActive] = useState(true);
   
-  // Add optimistic vote state (was missing!)
+  // Add optimistic states (was missing!)
   const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+  const [optimisticRequests, setOptimisticRequests] = useState<Map<string, Partial<SongRequest>>>(new Map());
   
   // Ref to track if component is mounted
   const mountedRef = useRef<boolean>(true);
@@ -89,46 +90,45 @@ function App() {
   const { isLoading: isFetchingRequests, reconnect: reconnectRequests } = useRequestSync(setRequests);
   const { isLoading: isFetchingSetLists, refetch: refreshSetLists } = useSetListSync(setSetLists);
 
-  // 🚀 Enhanced mergedRequests with proper debugging and optimistic updates
+  // 🚀 CRITICAL FIX: Use the same mergedRequests pattern as KioskPage
   const mergedRequests = useMemo(() => {
-    console.log('🔀 App: Processing requests for components:', {
-      totalRequests: requests.length,
-      requestTitles: requests.map(r => `${r.title} (played: ${r.isPlayed}, locked: ${r.isLocked})`),
-      activeRequests: requests.filter(r => !r.isPlayed).length,
-      optimisticVotesCount: optimisticVotes.size
+    console.log('🔀 App: Creating merged requests (KioskPage pattern):', {
+      realRequests: requests.length,
+      optimisticRequests: optimisticRequests.size,
+      optimisticVotes: optimisticVotes.size
     });
 
-    // Ensure we have valid request data
-    if (!Array.isArray(requests)) {
-      console.warn('⚠️ Requests is not an array:', requests);
-      return [];
-    }
-
-    // Apply optimistic vote updates and ensure proper structure
-    const validRequests = requests.map(request => ({
-      ...request,
-      // Ensure required properties exist
-      id: request.id || 'unknown',
-      title: request.title || 'Unknown Song',
-      artist: request.artist || '',
-      requesters: Array.isArray(request.requesters) ? request.requesters : [],
-      votes: optimisticVotes.get(request.id) ?? (typeof request.votes === 'number' ? request.votes : 0),
-      isLocked: Boolean(request.isLocked),
-      isPlayed: Boolean(request.isPlayed),
-      status: request.status || 'pending',
-      createdAt: request.createdAt ? new Date(request.createdAt) : new Date()
+    // Start with real requests and apply optimistic vote updates (same as KioskPage)
+    const realRequests = requests.map(req => ({
+      ...req,
+      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0,
+      // Ensure proper structure
+      id: req.id || 'unknown',
+      title: req.title || 'Unknown Song',
+      artist: req.artist || '',
+      requesters: Array.isArray(req.requesters) ? req.requesters : [],
+      isLocked: Boolean(req.isLocked),
+      isPlayed: Boolean(req.isPlayed),
+      status: req.status || 'pending',
+      createdAt: req.createdAt ? new Date(req.createdAt) : new Date()
     }));
 
-    console.log('✅ Processed valid requests:', validRequests.length);
-    console.log('📊 Requests by status:', {
-      total: validRequests.length,
-      active: validRequests.filter(r => !r.isPlayed).length,
-      played: validRequests.filter(r => r.isPlayed).length,
-      locked: validRequests.filter(r => r.isLocked).length
+    // Add any optimistic new requests (same as KioskPage)
+    const optimisticRequestsList = Array.from(optimisticRequests.values())
+      .filter(req => req.id?.startsWith('temp_'));
+
+    // Combine and filter out played requests (same as KioskPage)
+    const merged = [...realRequests, ...optimisticRequestsList].filter(req => !req.isPlayed);
+
+    console.log('✅ Merged requests created:', {
+      total: merged.length,
+      fromReal: realRequests.filter(r => !r.isPlayed).length,
+      fromOptimistic: optimisticRequestsList.length,
+      titles: merged.map(r => r.title)
     });
 
-    return validRequests;
-  }, [requests, optimisticVotes]);
+    return merged;
+  }, [requests, optimisticRequests, optimisticVotes]);
 
   // Add debugging for when requests change
   useEffect(() => {
@@ -386,9 +386,9 @@ function App() {
     // Empty function to handle logo clicks
   }, []);
 
-  // 🚀 Enhanced song request submission with better debugging
+  // 🚀 Enhanced song request submission with optimistic updates (KioskPage pattern)
   const handleSubmitRequest = useCallback(async (data: RequestFormData): Promise<boolean> => {
-    console.log('🎵 Submitting request:', data);
+    console.log('🎵 Submitting request with optimistic updates:', data);
     
     if (requestInProgressRef.current) {
       console.log('Request already in progress, please wait...');
@@ -397,6 +397,30 @@ function App() {
     }
     
     requestInProgressRef.current = true;
+
+    // Create optimistic request for instant UI feedback (same as KioskPage)
+    const tempId = `temp_${Date.now()}`;
+    const optimisticRequest: Partial<SongRequest> = {
+      id: tempId,
+      title: data.title,
+      artist: data.artist || '',
+      votes: 0,
+      isLocked: false,
+      isPlayed: false,
+      status: 'pending',
+      createdAt: new Date(),
+      requesters: [{
+        id: tempId,
+        name: data.requestedBy,
+        photo: data.userPhoto || generateDefaultAvatar(data.requestedBy),
+        message: data.message?.trim() || '',
+        timestamp: new Date()
+      }]
+    };
+
+    // INSTANT UI UPDATE - Add to optimistic state immediately (same as KioskPage)
+    setOptimisticRequests(prev => new Map([...prev, [tempId, optimisticRequest]]));
+    console.log('✨ Added optimistic request for instant UI update');
 
     try {
       // Check if the song is already requested
@@ -466,12 +490,31 @@ function App() {
         if (requesterError) throw requesterError;
       }
 
+      // Remove optimistic request after real data arrives (same as KioskPage)
+      setTimeout(() => {
+        if (mountedRef.current) {
+          console.log('🧹 Removing optimistic request - real data should be arriving');
+          setOptimisticRequests(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(tempId);
+            return newMap;
+          });
+        }
+      }, 2000);
+
       requestRetriesRef.current = 0;
       console.log('✅ Request submitted successfully:', requestId);
       toast.success('Your request has been added to the queue!');
       return true;
     } catch (error) {
       console.error('❌ Error submitting request:', error);
+      
+      // Remove failed optimistic request (same as KioskPage)
+      setOptimisticRequests(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(tempId);
+        return newMap;
+      });
       
       // Handle retries for network errors
       if (error instanceof Error && 
@@ -688,9 +731,10 @@ function App() {
 
       if (error) throw error;
       
-      // Clear optimistic votes
+      // Clear all optimistic states (same as KioskPage)
       setOptimisticVotes(new Map());
-      console.log('✅ Queue cleared successfully');
+      setOptimisticRequests(new Map());
+      console.log('✅ Queue cleared successfully (including optimistic states)');
       toast.success('Queue cleared successfully!');
     } catch (error) {
       console.error('❌ Error clearing queue:', error);
