@@ -1,4 +1,55 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// Create merged requests with optimistic updates - FIXED to show all requests
+  const mergedRequests = useMemo(() => {
+    console.log('🔀 Merging requests:', {
+      realRequests: requests.length,
+      optimisticRequests: optimisticRequests.size,
+      optimisticVotes: optimisticVotes.size
+    });
+
+    // Start with real requests and apply optimistic vote updates
+    const realRequestsWithVotes = requests.map(req => {
+      const optimisticVoteCount = optimisticVotes.get(req.id);
+      const result = {
+        ...req,
+        votes: optimisticVoteCount ?? req.votes ?? 0
+      };
+      
+      if (optimisticVoteCount !== undefined) {
+        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
+      }
+      
+      return result;
+    });
+
+    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
+    const optimisticRequestsList = Array.from(optimisticRequests.values())
+      .filter(optReq => {
+        // Only include if it's a temp request AND not already in real requests
+        const isTemp = optReq.id?.startsWith('temp_');
+        const existsInReal = requests.some(realReq => 
+          realReq.title === optReq.title && realReq.artist === optReq.artist
+        );
+        
+        const shouldInclude = isTemp && !existsInReal;
+        
+        if (isTemp) {
+          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
+        }
+        
+        return shouldInclude;
+      });
+
+    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
+    
+    console.log('✅ Final merged requests:', {
+      total: result.length,
+      real: realRequestsWithVotes.length,
+      optimistic: optimisticRequestsList.length,
+      titles: result.map(r => r.title)
+    });
+
+    return result;
+  }, [requests, optimisticRequests, optimisticVotes]);import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Music4, ThumbsUp, UserCircle, Settings } from 'lucide-react';
 import { Logo } from './shared/Logo';
 import { SongList } from './SongList';
@@ -31,7 +82,7 @@ interface UserFrontendProps {
 
 export function UserFrontend({
   songs,
-  requests,
+  requests, // This should already be merged requests from App.tsx
   activeSetList,
   currentUser,
   onSubmitRequest,
@@ -48,9 +99,7 @@ export function UserFrontend({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState<'requests' | 'upvote'>('requests');
   
-  // Optimistic update states for instant UI feedback
-  const [optimisticRequests, setOptimisticRequests] = useState<Map<string, Partial<SongRequest>>>(new Map());
-  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+  // Remove optimistic state management - this is now handled in App.tsx
   const [submittingStates, setSubmittingStates] = useState<Set<string>>(new Set());
   const [votingStates, setVotingStates] = useState<Set<string>>(new Set());
   
@@ -64,49 +113,15 @@ export function UserFrontend({
     };
   }, []);
 
-  // Cleanup old optimistic requests to prevent permanent "processing" state
-  useEffect(() => {
-    const cleanup = setInterval(() => {
-      const now = Date.now();
-      setOptimisticRequests(prev => {
-        const newMap = new Map(prev);
-        let hasChanges = false;
-        
-        for (const [id, request] of newMap.entries()) {
-          if (id.startsWith('temp_')) {
-            // Extract timestamp from temp ID
-            const timestamp = parseInt(id.replace('temp_', ''));
-            // Remove if older than 15 seconds (increased timeout)
-            if (now - timestamp > 15000) {
-              console.log('🧹 Emergency cleanup of old optimistic request:', request.title);
-              newMap.delete(id);
-              hasChanges = true;
-            }
-          }
-        }
-        
-        return hasChanges ? newMap : prev;
-      });
-    }, 5000); // Check every 5 seconds instead of 2
-
-    return () => clearInterval(cleanup);
-  }, []);
-
   // Get colors from settings
   const navBgColor = settings?.nav_bg_color || '#0f051d';
   const highlightColor = settings?.highlight_color || '#ff00ff';
   const accentColor = settings?.frontend_accent_color || '#ff00ff';
 
-  // Get the locked request for the ticker
+  // Get the locked request for the ticker (using passed requests)
   const lockedRequest = useMemo(() => {
-    const mergedRequests = requests.map(req => ({
-      ...req,
-      ...optimisticRequests.get(req.id),
-      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
-    }));
-    
-    return mergedRequests.find(r => r.isLocked && !r.isPlayed);
-  }, [requests, optimisticRequests, optimisticVotes]);
+    return requests.find(r => r.isLocked && !r.isPlayed);
+  }, [requests]);
 
   // Find the locked song for ticker
   const lockedSong = useMemo(() => {
@@ -133,38 +148,14 @@ export function UserFrontend({
     });
   }, [availableSongs, searchTerm]);
 
-  // Enhanced song request handler with optimistic updates
+  // Enhanced song request handler - simplified since optimistic updates are in App.tsx
   const handleRequestSong = useCallback(async (song: Song) => {
     if (!currentUser) {
       toast.error('Please set up your profile first');
       return;
     }
 
-    const tempId = `temp_${Date.now()}`;
     setSubmittingStates(prev => new Set([...prev, song.id]));
-
-    // Create optimistic request data
-    const optimisticRequest: SongRequest = {
-      id: tempId,
-      title: song.title,
-      artist: song.artist || '',
-      votes: 0,
-      isLocked: false,
-      isPlayed: false,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      requesters: [{
-        id: currentUser.id || currentUser.name,
-        name: currentUser.name,
-        photo: currentUser.photo || '',
-        message: '',
-        timestamp: new Date().toISOString()
-      }]
-    };
-
-    // INSTANT UI UPDATE - Add to optimistic state
-    setOptimisticRequests(prev => new Map([...prev, [tempId, optimisticRequest]]));
-    console.log('➕ Added optimistic request:', song.title);
 
     try {
       const requestData: RequestFormData = {
@@ -181,47 +172,9 @@ export function UserFrontend({
         toast.success(`"${song.title}" has been added to the queue!`);
         setSelectedSong(null);
         setIsRequestModalOpen(false);
-        
-        // Wait longer for real data to arrive, then clean up optimistic request
-        setTimeout(() => {
-          if (mountedRef.current) {
-            // Only remove if a real request with the same title/artist exists
-            const realRequestExists = requests.some(req => 
-              req.title === song.title && req.artist === (song.artist || '')
-            );
-            
-            if (realRequestExists) {
-              console.log('🧹 Removing optimistic request, real data found:', song.title);
-              setOptimisticRequests(prev => {
-                const newMap = new Map(prev);
-                newMap.delete(tempId);
-                return newMap;
-              });
-            } else {
-              console.log('⏳ Real data not yet available, keeping optimistic request:', song.title);
-            }
-          }
-        }, 3000); // Increased to 3 seconds to ensure real data arrives
-      } else {
-        // FAILURE: Remove failed optimistic request immediately
-        console.log('❌ Request failed, removing optimistic request:', song.title);
-        setOptimisticRequests(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(tempId);
-          return newMap;
-        });
       }
     } catch (error) {
       console.error('Error requesting song:', error);
-      
-      // ERROR: Remove failed optimistic request immediately
-      console.log('💥 Request error, removing optimistic request:', song.title);
-      setOptimisticRequests(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(tempId);
-        return newMap;
-      });
-      
       toast.error('Failed to submit request. Please try again.');
     } finally {
       setSubmittingStates(prev => {
@@ -230,9 +183,9 @@ export function UserFrontend({
         return newSet;
       });
     }
-  }, [currentUser, onSubmitRequest, requests]);
+  }, [currentUser, onSubmitRequest]);
 
-  // Enhanced vote handler with atomic database function and optimistic updates
+  // Enhanced vote handler - simplified since optimistic updates are in App.tsx
   const handleVote = useCallback(async (requestId: string): Promise<boolean> => {
     if (!currentUser) {
       toast.error('Please set up your profile first');
@@ -251,68 +204,12 @@ export function UserFrontend({
 
     setVotingStates(prev => new Set([...prev, requestId]));
 
-    // Find current vote count
-    const currentRequest = requests.find(r => r.id === requestId);
-    const currentVotes = optimisticVotes.get(requestId) ?? currentRequest?.votes ?? 0;
-
-    // INSTANT UI UPDATE - Optimistically increment vote
-    setOptimisticVotes(prev => new Map([...prev, [requestId, currentVotes + 1]]));
-
     try {
-      // Use atomic database function for voting
-      const { data, error } = await supabase.rpc('add_vote', {
-        p_request_id: requestId,
-        p_user_id: currentUser.id || currentUser.name
-      });
-
-      if (error) throw error;
-
-      if (data === true) {
-        toast.success('Vote added!');
-        
-        // Keep optimistic vote for a moment, then let real data take over
-        setTimeout(() => {
-          if (mountedRef.current) {
-            setOptimisticVotes(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(requestId);
-              return newMap;
-            });
-          }
-        }, 1500);
-        
-        return true;
-      } else {
-        // Revert optimistic update if already voted
-        setOptimisticVotes(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(requestId);
-          return newMap;
-        });
-        
-        toast.error('You have already voted for this request');
-        return false;
-      }
+      const success = await onVoteRequest(requestId);
+      return success;
     } catch (error) {
       console.error('Error voting for request:', error);
-      
-      // Revert optimistic update on error
-      setOptimisticVotes(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(requestId);
-        return newMap;
-      });
-      
-      if (error instanceof Error && (
-        error.message.includes('Failed to fetch') || 
-        error.message.includes('NetworkError') ||
-        error.message.includes('network'))
-      ) {
-        toast.error('Network error. Please check your connection and try again.');
-      } else {
-        toast.error('Failed to vote for this request. Please try again.');
-      }
-      
+      toast.error('Failed to vote for this request. Please try again.');
       return false;
     } finally {
       setVotingStates(prev => {
@@ -321,7 +218,7 @@ export function UserFrontend({
         return newSet;
       });
     }
-  }, [currentUser, requests, optimisticVotes, votingStates]);
+  }, [currentUser, onVoteRequest, votingStates]);
 
   // Create merged requests with optimistic updates - FIXED to show all requests
   const mergedRequests = useMemo(() => {
@@ -515,7 +412,7 @@ export function UserFrontend({
             </>
           ) : (
             <UpvoteList
-              requests={mergedRequests}
+              requests={requests} // Now using passed requests with optimistic updates
               onVote={handleVote}
               currentUserId={currentUser.id || currentUser.name}
               votingStates={votingStates}
