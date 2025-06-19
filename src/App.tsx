@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './utils/supabase';
-import { Song, SongRequest, SetList, User, UiSettings } from './types';
+import type { Song, SongRequest, RequestFormData, SetList, User } from './types';
 import { LandingPage } from './components/LandingPage';
 import { UserFrontend } from './components/UserFrontend';
-import BackendLogin from './components/BackendLogin'; 
+import { BackendLogin } from './components/BackendLogin'; 
 import { SongLibrary } from './components/SongLibrary';
 import { SetListManager } from './components/SetListManager';
 import { QueueView } from './components/QueueView';
@@ -18,337 +18,619 @@ import { useSongSync } from './hooks/useSongSync';
 import { useSetListSync } from './hooks/useSetListSync';
 import { useUiSettings } from './hooks/useUiSettings';
 import { useLogoHandling } from './hooks/useLogoHandling';
-import { mergeRequestsByTitle } from './utils/requestQueue';
+import { LoadingSpinner } from './components/shared/LoadingSpinner';
+import toast from 'react-hot-toast';
 
-const DEFAULT_BAND_LOGO = 'https://images.pexels.com/photos/1763075/pexels-photo-1763075.jpeg?auto=compress&cs=tinysrgb&w=400';
+const DEFAULT_BAND_LOGO = "https://www.fusion-events.ca/wp-content/uploads/2025/03/ulr-wordmark.png";
+const MAX_REQUEST_RETRIES = 3;
 
 function App() {
-  // Core state
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Authentication state
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showBackend, setShowBackend] = useState(false);
-  const [activeBackendTab, setActiveBackendTab] = useState<'songs' | 'setlists' | 'requests' | 'settings'>('songs');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isBackend, setIsBackend] = useState(false);
+  
+  // Backend tab state
+  const [activeBackendTab, setActiveBackendTab] = useState<'requests' | 'setlists' | 'songs' | 'settings'>('requests');
+  
+  // App data state
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [requests, setRequestsState] = useState<SongRequest[]>([]);
+  
+  // Debug wrapper for setRequests
+  const setRequests = useCallback((newRequests: any) => {
+    console.log('🔄 setRequests called with:', newRequests);
+    if (Array.isArray(newRequests)) {
+      console.log('📥 Setting requests to array of length:', newRequests.length);
+    } else if (typeof newRequests === 'function') {
+      console.log('📥 Setting requests with function');
+    }
+    setRequestsState(newRequests);
+  }, []);
+  
+  const [setLists, setSetLists] = useState<SetList[]>([]);
+  const [activeSetList, setActiveSetList] = useState<SetList | null>(null);
+  
+  // User state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  
+  // Online state
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  // Request processing state
+  const requestInProgressRef = useRef(false);
+  const requestRetriesRef = useRef(0);
+  const mountedRef = useRef(true);
+  
+  // Optimistic updates state
+  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
 
-  // Ticker state
-  const [isTickerActive, setIsTickerActive] = useState(false);
-  const [tickerMessage, setTickerMessage] = useState('');
+  // Use custom hooks for data syncing
+  const { reconnectRequests } = useRequestSync({
+    requests,
+    setRequests,
+    isOnline,
+    currentUser
+  });
 
-  // Custom hooks for data synchronization
-  const { songs, loading: songsLoading, error: songsError, addSong, updateSong, deleteSong } = useSongSync();
-  const { requests, loading: requestsLoading, error: requestsError, addRequest, updateRequest } = useRequestSync();
-  const { setLists, activeSetList, loading: setListsLoading, error: setListsError, addSetList, updateSetList, deleteSetList } = useSetListSync();
+  const { reconnectSongs } = useSongSync({
+    songs,
+    setSongs,
+    isOnline
+  });
+
+  const { reconnectSetLists } = useSetListSync({
+    setLists,
+    setSetLists,
+    isOnline
+  });
+
   const { settings, loading: settingsLoading, updateSettings } = useUiSettings();
-  const { handleLogoUpdate } = useLogoHandling();
 
-  // Load user from localStorage on mount
+  // Cleanup on unmount
   useEffect(() => {
-    const savedUser = localStorage.getItem('bandRequestUser');
-    if (savedUser) {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Online/offline status monitoring
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      console.log('📶 Connection restored');
+      toast.success('Connection restored');
+      
+      // Reconnect all sync hooks
+      reconnectRequests();
+      reconnectSongs();
+      reconnectSetLists();
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      console.log('📵 Connection lost');
+      toast.error('Connection lost. Working in offline mode.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [reconnectRequests, reconnectSongs, reconnectSetLists]);
+
+  // Check auth state
+  useEffect(() => {
+    const checkAuth = async () => {
       try {
-        setCurrentUser(JSON.parse(savedUser));
-      } catch (error) {
-        console.error('Error parsing saved user:', error);
-        localStorage.removeItem('bandRequestUser');
+        const hasAuth = localStorage.getItem('backendAuth') === 'true';
+        setIsAdmin(hasAuth);
+        
+        const savedUser = localStorage.getItem('currentUser');
+        if (savedUser) {
+          try {
+            setCurrentUser(JSON.parse(savedUser));
+          } catch (e) {
+            console.error('Error parsing saved user:', e);
+            localStorage.removeItem('currentUser');
+          }
+        }
+      } finally {
+        setIsInitializing(false);
       }
+    };
+
+    checkAuth();
+  }, []);
+
+  // Update active set list when set lists change
+  useEffect(() => {
+    const active = setLists.find(sl => sl.isActive);
+    setActiveSetList(active || null);
+  }, [setLists]);
+
+  // Handle navigation to backend
+  const navigateToBackend = useCallback(() => {
+    setIsBackend(true);
+  }, []);
+  
+  // Handle navigation to frontend
+  const navigateToFrontend = useCallback(() => {
+    setIsBackend(false);
+  }, []);
+
+  // Handle admin login
+  const handleAdminLogin = useCallback(() => {
+    localStorage.setItem('backendAuth', 'true');
+    setIsAdmin(true);
+  }, []);
+
+  // Handle admin logout
+  const handleAdminLogout = useCallback(() => {
+    localStorage.removeItem('backendAuth');
+    localStorage.removeItem('backendUser');
+    setIsAdmin(false);
+    navigateToFrontend();
+    toast.success('Logged out successfully');
+  }, [navigateToFrontend]);
+  
+  // Handle user update
+  const handleUserUpdate = useCallback((user: User) => {
+    try {
+      setCurrentUser(user);
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      toast.success('Profile updated successfully!');
+    } catch (error) {
+      console.error('Error updating user:', error);
+      toast.error('Failed to update profile. Please try again.');
     }
   }, []);
 
-  // Merge requests by title to handle duplicates
-  const mergedRequests = mergeRequestsByTitle(requests);
+  // Enhanced request submission with retry logic and optimistic updates
+  const handleSubmitRequest = useCallback(async (data: RequestFormData): Promise<boolean> => {
+    if (!isOnline) {
+      toast.error('Cannot submit requests while offline. Please check your internet connection.');
+      return false;
+    }
+    
+    if (requestInProgressRef.current) {
+      console.log('Request already in progress, skipping...');
+      return false;
+    }
 
-  // Find locked request for ticker
-  const lockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
-
-  // Event handlers
-  const handleUserUpdate = useCallback((user: User) => {
-    setCurrentUser(user);
-    localStorage.setItem('bandRequestUser', JSON.stringify(user));
-  }, []);
-
-  const handleSubmitRequest = useCallback(async (title: string, artist?: string, message?: string) => {
-    if (!currentUser) return;
+    requestInProgressRef.current = true;
 
     try {
-      await addRequest(title, artist, currentUser, message);
+      if (!currentUser) {
+        throw new Error('You must set up your profile first');
+      }
+
+      const requestId = crypto.randomUUID();
+      
+      const newRequest = {
+        id: requestId,
+        title: data.title,
+        artist: data.artist,
+        votes: 0,
+        isLocked: false,
+        isPlayed: false,
+        createdAt: new Date().toISOString(),
+        requesters: [{
+          id: crypto.randomUUID(),
+          requestId: requestId,
+          name: currentUser.name,
+          photo: currentUser.photo,
+          message: data.message || '',
+          timestamp: new Date().toISOString()
+        }]
+      };
+
+      const { error } = await supabase
+        .from('requests')
+        .insert([{
+          id: requestId,
+          title: data.title,
+          artist: data.artist,
+          votes: 0,
+          is_locked: false,
+          is_played: false,
+          created_at: new Date().toISOString()
+        }]);
+
+      if (error) throw error;
+
+      const { error: requesterError } = await supabase
+        .from('requesters')
+        .insert([{
+          id: crypto.randomUUID(),
+          request_id: requestId,
+          name: currentUser.name,
+          photo: currentUser.photo,
+          message: data.message || '',
+          timestamp: new Date().toISOString()
+        }]);
+
+      if (requesterError) throw requesterError;
+
+      requestRetriesRef.current = 0;
+      console.log('✅ Request submitted successfully');
+      return true;
     } catch (error) {
       console.error('Error submitting request:', error);
-      throw error;
+      
+      // Handle retries for network errors
+      if (error instanceof Error && 
+          (error.message.includes('channel') || 
+           error.message.includes('Failed to fetch') || 
+           error.message.includes('NetworkError'))) {
+        
+        reconnectRequests();
+        
+        if (requestRetriesRef.current < MAX_REQUEST_RETRIES) {
+          requestRetriesRef.current++;
+          
+          const delay = Math.pow(2, requestRetriesRef.current) * 1000;
+          console.log(`Automatically retrying request in ${delay/1000} seconds (attempt ${requestRetriesRef.current}/${MAX_REQUEST_RETRIES})...`);
+          
+          setTimeout(() => {
+            if (mountedRef.current) {
+              requestInProgressRef.current = false;
+              handleSubmitRequest(data).catch(console.error);
+            }
+          }, delay);
+          
+          return false;
+        }
+      }
+      
+      if (error instanceof Error) {
+        const errorMsg = error.message.includes('rate limit') 
+          ? 'Too many requests. Please try again later.'
+          : error.message || 'Failed to submit request. Please try again.';
+        toast.error(errorMsg);
+      } else {
+        toast.error('Failed to submit request. Please try again.');
+      }
+      
+      requestRetriesRef.current = 0;
+      return false;
+    } finally {
+      requestInProgressRef.current = false;
     }
-  }, [currentUser, addRequest]);
+  }, [reconnectRequests, currentUser, isOnline]);
 
-  const handleVoteRequest = useCallback(async (requestId: string) => {
-    if (!currentUser) return;
-
+  // Enhanced vote handler with atomic database function and optimistic updates
+  const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
+    if (!isOnline) {
+      toast.error('Cannot vote while offline. Please check your internet connection.');
+      return false;
+    }
+    
     try {
-      // Check if user has already voted
-      const { data: existingVote } = await supabase
-        .from('user_votes')
-        .select('id')
-        .eq('request_id', requestId)
-        .eq('user_id', currentUser.name)
-        .single();
-
-      if (existingVote) {
-        console.log('User has already voted for this request');
-        return;
+      if (!currentUser) {
+        throw new Error('You must be logged in to vote');
       }
 
-      // Add vote
-      const { error: voteError } = await supabase
-        .from('user_votes')
-        .insert({
-          request_id: requestId,
-          user_id: currentUser.name
+      // Don't allow voting on temporary requests
+      if (id.startsWith('temp_')) {
+        toast.error('Please wait for the request to be processed before voting');
+        return false;
+      }
+
+      // INSTANT UI UPDATE - Optimistically increment vote
+      const currentRequest = requests.find(r => r.id === id);
+      const currentVotes = optimisticVotes.get(id) ?? currentRequest?.votes ?? 0;
+      setOptimisticVotes(prev => new Map([...prev, [id, currentVotes + 1]]));
+      console.log(`📊 Optimistically incremented vote for request ${id}: ${currentVotes} -> ${currentVotes + 1}`);
+
+      // Use the atomic database function for voting
+      const { data, error } = await supabase.rpc('add_vote', {
+        p_request_id: id,
+        p_user_id: currentUser.name // Use name instead of id since user object doesn't have id
+      });
+
+      if (error) throw error;
+
+      if (data === true) {
+        toast.success('Vote added!');
+        
+        // Keep optimistic vote for a moment, then let real data take over
+        setTimeout(() => {
+          if (mountedRef.current) {
+            setOptimisticVotes(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(id);
+              return newMap;
+            });
+          }
+        }, 1500);
+        
+        return true;
+      } else {
+        // Revert optimistic update if voting failed
+        setOptimisticVotes(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(id);
+          return newMap;
         });
-
-      if (voteError) throw voteError;
-
-      // Update request votes count
-      const { error: updateError } = await supabase
-        .from('requests')
-        .update({ votes: supabase.sql`votes + 1` })
-        .eq('id', requestId);
-
-      if (updateError) throw updateError;
-
+        
+        toast.error('You have already voted for this request');
+        return false;
+      }
     } catch (error) {
       console.error('Error voting for request:', error);
-      throw error;
+      
+      // Revert optimistic update on error
+      setOptimisticVotes(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
+      
+      if (error instanceof Error && error.message.includes('already voted')) {
+        toast.error(error.message);
+      } else if (error instanceof Error && (
+        error.message.includes('Failed to fetch') || 
+        error.message.includes('NetworkError') ||
+        error.message.includes('network'))
+      ) {
+        toast.error('Network error. Please check your connection and try again.');
+      } else {
+        toast.error('Failed to vote for this request. Please try again.');
+      }
+      
+      return false;
     }
-  }, [currentUser]);
+  }, [currentUser, isOnline, requests, optimisticVotes]);
 
+  // Handle locking a request (marking it as next)
   const handleLockRequest = useCallback(async (requestId: string) => {
+    if (!isOnline) {
+      toast.error('Cannot update requests while offline. Please check your internet connection.');
+      return false;
+    }
+
     try {
-      // First unlock any currently locked requests
-      await supabase
-        .from('requests')
-        .update({ is_locked: false })
-        .eq('is_locked', true);
+      console.log(`🔒 Locking request: ${id}`);
+      
+      const { error } = await supabase.rpc('lock_request', {
+        request_id: id
+      });
 
-      // Then lock the selected request
-      await supabase
-        .from('requests')
-        .update({ is_locked: true })
-        .eq('id', requestId);
+      if (error) throw error;
 
+      toast.success('Request locked as next!');
+      return true;
     } catch (error) {
       console.error('Error locking request:', error);
-      throw error;
+      toast.error('Failed to lock request. Please try again.');
+      return false;
     }
-  }, []);
+  }, [isOnline]);
 
-  const handleMarkPlayed = useCallback(async (requestId: string) => {
+  // Handle unlocking a request
+  const handleUnlockRequest = useCallback(async (id: string) => {
+    if (!isOnline) {
+      toast.error('Cannot update requests while offline. Please check your internet connection.');
+      return false;
+    }
+
     try {
-      await supabase
+      console.log(`🔓 Unlocking request: ${id}`);
+      
+      const { error } = await supabase.rpc('unlock_request', {
+        request_id: id
+      });
+
+      if (error) throw error;
+
+      toast.success('Request unlocked!');
+      return true;
+    } catch (error) {
+      console.error('Error unlocking request:', error);
+      toast.error('Failed to unlock request. Please try again.');
+      return false;
+    }
+  }, [isOnline]);
+
+  // Handle marking a request as played
+  const handleMarkAsPlayed = useCallback(async (id: string) => {
+    if (!isOnline) {
+      toast.error('Cannot update requests while offline. Please check your internet connection.');
+      return false;
+    }
+
+    try {
+      console.log(`✅ Marking request as played: ${id}`);
+      
+      const { error } = await supabase
         .from('requests')
         .update({ 
           is_played: true,
-          is_locked: false,
-          status: 'played'
+          is_locked: false
         })
-        .eq('id', requestId);
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast.success('Request marked as played!');
+      return true;
     } catch (error) {
       console.error('Error marking request as played:', error);
-      throw error;
+      toast.error('Failed to mark request as played. Please try again.');
+      return false;
     }
-  }, []);
+  }, [isOnline]);
 
-  const handleResetQueue = useCallback(async () => {
+  // Handle removing a request
+  const handleRemoveRequest = useCallback(async (id: string) => {
+    if (!isOnline) {
+      toast.error('Cannot remove requests while offline. Please check your internet connection.');
+      return false;
+    }
+
     try {
-      await supabase
+      console.log(`🗑️ Removing request: ${id}`);
+      
+      // Delete requesters first (foreign key constraint)
+      const { error: requestersError } = await supabase
+        .from('requesters')
+        .delete()
+        .eq('request_id', id);
+
+      if (requestersError) throw requestersError;
+
+      // Delete user votes
+      const { error: votesError } = await supabase
+        .from('user_votes')
+        .delete()
+        .eq('request_id', id);
+
+      if (votesError) throw votesError;
+
+      // Delete the request
+      const { error: requestError } = await supabase
         .from('requests')
-        .update({ 
-          is_played: false,
-          is_locked: false,
-          status: 'pending'
-        })
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Update all records
+        .delete()
+        .eq('id', id);
+
+      if (requestError) throw requestError;
+
+      toast.success('Request removed!');
+      return true;
     } catch (error) {
-      console.error('Error resetting queue:', error);
-      throw error;
+      console.error('Error removing request:', error);
+      toast.error('Failed to remove request. Please try again.');
+      return false;
     }
-  }, []);
+  }, [isOnline]);
 
-  const navigateToBackend = useCallback(() => {
-    setShowBackend(true);
-  }, []);
+  // Create merged requests with optimistic updates
+  const mergedRequests = useMemo(() => {
+    return requests.map(req => ({
+      ...req,
+      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
+    }));
+  }, [requests, optimisticVotes]);
 
-  const onLogoClick = useCallback(() => {
-    if (isAdmin) {
-      setShowBackend(true);
-      setActiveBackendTab('settings');
-    }
-  }, [isAdmin]);
-
-  // Show loading state
-  if (songsLoading || requestsLoading || setListsLoading || settingsLoading) {
+  // Show loading screen
+  if (isInitializing) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
-      </div>
+      <LoadingSpinner />
     );
   }
 
-  // Show error state
-  if (songsError || requestsError || setListsError) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-red-400 text-xl">
-          Error loading data: {songsError || requestsError || setListsError}
-        </div>
-      </div>
-    );
-  }
-
-  // Show backend interface
-  if (showBackend) {
+  // Show backend interface if in backend mode
+  if (isBackend) {
     if (!isAdmin) {
       return (
         <ErrorBoundary>
-          <BackendLogin 
-            onLogin={() => setIsAdmin(true)}
-            onBack={() => setShowBackend(false)}
-          />
+          <BackendLogin onLogin={handleAdminLogin} />
         </ErrorBoundary>
       );
     }
 
     return (
       <ErrorBoundary>
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-          <div className="container mx-auto px-4 py-8">
-            <div className="flex justify-between items-center mb-8">
-              <h1 className="text-3xl font-bold neon-text">Band Request Hub - Admin</h1>
+        <div className="min-h-screen bg-gray-900 text-white">
+          {/* Header */}
+          <div className="bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center justify-between px-6 py-4">
+              <div className="flex items-center space-x-4">
+                <h1 className="text-xl font-bold">Admin Dashboard</h1>
+              </div>
+              
               <button
-                onClick={() => setShowBackend(false)}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                onClick={navigateToFrontend}
+                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm"
               >
-                Back to Frontend
+                View Frontend
+              </button>
+              <button
+                onClick={handleAdminLogout}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
+              >
+                Logout
               </button>
             </div>
+          </div>
 
-            <BackendTabs 
-              activeTab={activeBackendTab}
-              onTabChange={setActiveBackendTab}
-            />
+          {/* Tab Navigation */}
+          <BackendTabs 
+            activeTab={activeBackendTab} 
+            onTabChange={setActiveBackendTab} 
+          />
 
-            <div className="mt-8">
-              {activeBackendTab === 'songs' && (
-                <ErrorBoundary>
-                  <SongLibrary 
-                    songs={songs}
-                    onAddSong={addSong}
-                    onUpdateSong={updateSong}
-                    onDeleteSong={deleteSong}
-                  />
-                </ErrorBoundary>
-              )}
-
-              {activeBackendTab === 'setlists' && (
-                <ErrorBoundary>
-                  <SetListManager 
-                    setLists={setLists}
-                    songs={songs}
-                    onAddSetList={addSetList}
-                    onUpdateSetList={updateSetList}
-                    onDeleteSetList={deleteSetList}
-                  />
-                </ErrorBoundary>
-              )}
-
-              {activeBackendTab === 'settings' && (
-                <>
-                  <ErrorBoundary>
-                    <LogoManager 
-                      isAdmin={isAdmin}
-                      currentLogoUrl={settings?.band_logo_url || null}
-                      onLogoUpdate={handleLogoUpdate}
-                    />
-                  </ErrorBoundary>
-
-                  <ErrorBoundary>
-                    <ColorCustomizer isAdmin={isAdmin} />
-                  </ErrorBoundary>
-
-                  <ErrorBoundary>
-                    <SettingsManager />
-                  </ErrorBoundary>
-                </>
-              )}
-
-              {activeBackendTab === 'requests' && (
-                <ErrorBoundary>
-                  <div className="glass-effect rounded-lg p-6">
-                    <h2 className="text-xl font-semibold neon-text mb-4">Current Request Queue</h2>
-                    <QueueView 
-                      requests={mergedRequests}
-                      onLockRequest={handleLockRequest}
-                      onMarkPlayed={handleMarkPlayed}
-                      onResetQueue={handleResetQueue}
-                    />
-                  </div>
-
-                  <ErrorBoundary>
-                    <TickerManager 
-                      nextSong={lockedRequest
-                        ? {
-                            title: lockedRequest.title,
-                            artist: lockedRequest.artist
-                          }
-                        : undefined
-                      }
-                      isActive={isTickerActive}
-                      customMessage={tickerMessage}
-                      onUpdateMessage={setTickerMessage}
-                      onToggleActive={() => setIsTickerActive(!isTickerActive)}
-                    />
-                  </ErrorBoundary>
-                </ErrorBoundary>
-              )}
-            </div>
+          {/* Content */}
+          <div className="p-6">
+            {activeBackendTab === 'requests' && (
+              <QueueView
+                requests={mergedRequests}
+                onLockRequest={handleLockRequest}
+                onUnlockRequest={handleUnlockRequest}
+                onMarkAsPlayed={handleMarkAsPlayed}
+                onRemoveRequest={handleRemoveRequest}
+                isOnline={isOnline}
+              />
+            )}
+            {activeBackendTab === 'setlists' && (
+              <SetListManager
+                setLists={setLists}
+                songs={songs}
+                onSetListsChange={setSetLists}
+                isOnline={isOnline}
+              />
+            )}
+            {activeBackendTab === 'songs' && (
+              <SongLibrary
+                songs={songs}
+                onSongsChange={setSongs}
+                isOnline={isOnline}
+              />
+            )}
+            {activeBackendTab === 'settings' && (
+              <div className="space-y-8">
+                <SettingsManager />
+                <LogoManager />
+                <ColorCustomizer />
+                <TickerManager />
+              </div>
+            )}
           </div>
         </div>
       </ErrorBoundary>
     );
   }
 
-  // Show landing page if no user is set up
+  // Show frontend interface
   if (!currentUser) {
     return (
       <ErrorBoundary>
-        <LandingPage onComplete={handleUserUpdate} />
+        <LandingPage 
+          onComplete={handleUserUpdate}
+          initialUser={currentUser}
+        />
       </ErrorBoundary>
     );
   }
 
-  // Show main frontend with merged requests and locked song for ticker
-  const frontendLockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
-  console.log('🎯 Frontend: Looking for locked request for ticker...', {
-    totalRequests: mergedRequests.length,
-    lockedRequest: frontendLockedRequest ? {
-      id: frontendLockedRequest.id,
-      title: frontendLockedRequest.title,
-      artist: frontendLockedRequest.artist,
-      isLocked: frontendLockedRequest.isLocked,
-      isPlayed: frontendLockedRequest.isPlayed
-    } : null
-  });
-
   return (
     <ErrorBoundary>
       <UserFrontend 
+        currentUser={currentUser}
         songs={songs}
         requests={mergedRequests}
         activeSetList={activeSetList}
-        currentUser={currentUser}
+        onUpdateUser={handleUserUpdate}
         onSubmitRequest={handleSubmitRequest}
         onVoteRequest={handleVoteRequest}
-        onUpdateUser={handleUserUpdate}
-        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
-        isAdmin={isAdmin}
-        onLogoClick={onLogoClick}
         onBackendAccess={navigateToBackend}
-        lockedRequest={frontendLockedRequest}
+        isAdmin={isAdmin}
+        isOnline={isOnline}
+        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
       />
     </ErrorBoundary>
   );
