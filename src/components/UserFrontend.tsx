@@ -76,18 +76,18 @@ export function UserFrontend({
           if (id.startsWith('temp_')) {
             // Extract timestamp from temp ID
             const timestamp = parseInt(id.replace('temp_', ''));
-            // Remove if older than 10 seconds
-            if (now - timestamp > 10000) {
+            // Remove if older than 15 seconds (increased timeout)
+            if (now - timestamp > 15000) {
+              console.log('🧹 Emergency cleanup of old optimistic request:', request.title);
               newMap.delete(id);
               hasChanges = true;
-              console.log('🧹 Cleaned up old optimistic request:', request.title);
             }
           }
         }
         
         return hasChanges ? newMap : prev;
       });
-    }, 2000); // Check every 2 seconds
+    }, 5000); // Check every 5 seconds instead of 2
 
     return () => clearInterval(cleanup);
   }, []);
@@ -164,6 +164,7 @@ export function UserFrontend({
 
     // INSTANT UI UPDATE - Add to optimistic state
     setOptimisticRequests(prev => new Map([...prev, [tempId, optimisticRequest]]));
+    console.log('➕ Added optimistic request:', song.title);
 
     try {
       const requestData: RequestFormData = {
@@ -177,22 +178,33 @@ export function UserFrontend({
       const success = await onSubmitRequest(requestData);
       
       if (success) {
-        // SUCCESS: Remove optimistic request faster since real data should arrive soon
-        setTimeout(() => {
-          if (mountedRef.current) {
-            setOptimisticRequests(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(tempId);
-              return newMap;
-            });
-          }
-        }, 1000); // Reduced from 2000ms to 1000ms
-        
         toast.success(`"${song.title}" has been added to the queue!`);
         setSelectedSong(null);
         setIsRequestModalOpen(false);
+        
+        // Wait longer for real data to arrive, then clean up optimistic request
+        setTimeout(() => {
+          if (mountedRef.current) {
+            // Only remove if a real request with the same title/artist exists
+            const realRequestExists = requests.some(req => 
+              req.title === song.title && req.artist === (song.artist || '')
+            );
+            
+            if (realRequestExists) {
+              console.log('🧹 Removing optimistic request, real data found:', song.title);
+              setOptimisticRequests(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(tempId);
+                return newMap;
+              });
+            } else {
+              console.log('⏳ Real data not yet available, keeping optimistic request:', song.title);
+            }
+          }
+        }, 3000); // Increased to 3 seconds to ensure real data arrives
       } else {
         // FAILURE: Remove failed optimistic request immediately
+        console.log('❌ Request failed, removing optimistic request:', song.title);
         setOptimisticRequests(prev => {
           const newMap = new Map(prev);
           newMap.delete(tempId);
@@ -203,6 +215,7 @@ export function UserFrontend({
       console.error('Error requesting song:', error);
       
       // ERROR: Remove failed optimistic request immediately
+      console.log('💥 Request error, removing optimistic request:', song.title);
       setOptimisticRequests(prev => {
         const newMap = new Map(prev);
         newMap.delete(tempId);
@@ -217,7 +230,7 @@ export function UserFrontend({
         return newSet;
       });
     }
-  }, [currentUser, onSubmitRequest]);
+  }, [currentUser, onSubmitRequest, requests]);
 
   // Enhanced vote handler with atomic database function and optimistic updates
   const handleVote = useCallback(async (requestId: string): Promise<boolean> => {
@@ -310,19 +323,57 @@ export function UserFrontend({
     }
   }, [currentUser, requests, optimisticVotes, votingStates]);
 
-  // Create merged requests with optimistic updates
+  // Create merged requests with optimistic updates - FIXED to show all requests
   const mergedRequests = useMemo(() => {
-    // Start with real requests
-    const realRequests = requests.map(req => ({
-      ...req,
-      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
-    }));
+    console.log('🔀 Merging requests:', {
+      realRequests: requests.length,
+      optimisticRequests: optimisticRequests.size,
+      optimisticVotes: optimisticVotes.size
+    });
 
-    // Add optimistic requests
+    // Start with real requests and apply optimistic vote updates
+    const realRequestsWithVotes = requests.map(req => {
+      const optimisticVoteCount = optimisticVotes.get(req.id);
+      const result = {
+        ...req,
+        votes: optimisticVoteCount ?? req.votes ?? 0
+      };
+      
+      if (optimisticVoteCount !== undefined) {
+        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
+      }
+      
+      return result;
+    });
+
+    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
     const optimisticRequestsList = Array.from(optimisticRequests.values())
-      .filter(req => req.id?.startsWith('temp_'));
+      .filter(optReq => {
+        // Only include if it's a temp request AND not already in real requests
+        const isTemp = optReq.id?.startsWith('temp_');
+        const existsInReal = requests.some(realReq => 
+          realReq.title === optReq.title && realReq.artist === optReq.artist
+        );
+        
+        const shouldInclude = isTemp && !existsInReal;
+        
+        if (isTemp) {
+          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
+        }
+        
+        return shouldInclude;
+      });
 
-    return [...realRequests, ...optimisticRequestsList];
+    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
+    
+    console.log('✅ Final merged requests:', {
+      total: result.length,
+      real: realRequestsWithVotes.length,
+      optimistic: optimisticRequestsList.length,
+      titles: result.map(r => r.title)
+    });
+
+    return result;
   }, [requests, optimisticRequests, optimisticVotes]);
 
   const handleSongSelect = (song: Song) => {
