@@ -49,9 +49,7 @@ function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [requests, setRequestsState] = useState<SongRequest[]>([]);
   
-  // 🚀 NEW: Optimistic update states for instant UI feedback
-  const [optimisticRequests, setOptimisticRequests] = useState<Map<string, Partial<SongRequest>>>(new Map());
-  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+
   
   // Debug wrapper for setRequests
   const setRequests = useCallback((newRequests: any) => {
@@ -87,84 +85,17 @@ function App() {
   const { isLoading: isFetchingRequests, reconnect: reconnectRequests } = useRequestSync(setRequests);
   const { isLoading: isFetchingSetLists, refetch: refreshSetLists } = useSetListSync(setSetLists);
 
-  // 🚀 NEW: Create merged requests with optimistic updates for all components
+  // 🚀 Simple requests without optimistic updates - just real-time data
   const mergedRequests = useMemo(() => {
-    console.log('🔀 App: Merging requests:', {
+    console.log('🔀 App: Using real requests only:', {
       realRequests: requests.length,
-      optimisticRequests: optimisticRequests.size,
-      optimisticVotes: optimisticVotes.size
+      titles: requests.map(r => r.title)
     });
 
-    // Start with real requests and apply optimistic vote updates
-    const realRequestsWithVotes = requests.map(req => {
-      const optimisticVoteCount = optimisticVotes.get(req.id);
-      const result = {
-        ...req,
-        votes: optimisticVoteCount ?? req.votes ?? 0
-      };
-      
-      if (optimisticVoteCount !== undefined) {
-        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
-      }
-      
-      return result;
-    });
+    return requests; // Just use real requests from database
+  }, [requests]);
 
-    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
-    const optimisticRequestsList = Array.from(optimisticRequests.values())
-      .filter(optReq => {
-        // Only include if it's a temp request AND not already in real requests
-        const isTemp = optReq.id?.startsWith('temp_');
-        const existsInReal = requests.some(realReq => 
-          realReq.title === optReq.title && realReq.artist === optReq.artist
-        );
-        
-        const shouldInclude = isTemp && !existsInReal;
-        
-        if (isTemp) {
-          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
-        }
-        
-        return shouldInclude;
-      });
 
-    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
-    
-    console.log('✅ Final merged requests:', {
-      total: result.length,
-      real: realRequestsWithVotes.length,
-      optimistic: optimisticRequestsList.length,
-      titles: result.map(r => r.title)
-    });
-
-    return result;
-  }, [requests, optimisticRequests, optimisticVotes]);
-
-  // 🚀 NEW: Cleanup old optimistic requests
-  useEffect(() => {
-    const cleanup = setInterval(() => {
-      const now = Date.now();
-      setOptimisticRequests(prev => {
-        const newMap = new Map(prev);
-        let hasChanges = false;
-        
-        for (const [id, request] of newMap.entries()) {
-          if (id.startsWith('temp_')) {
-            const timestamp = parseInt(id.replace('temp_', ''));
-            if (now - timestamp > 15000) { // 15 seconds
-              console.log('🧹 Emergency cleanup of old optimistic request:', request.title);
-              newMap.delete(id);
-              hasChanges = true;
-            }
-          }
-        }
-        
-        return hasChanges ? newMap : prev;
-      });
-    }, 5000);
-
-    return () => clearInterval(cleanup);
-  }, []);
 
   // SUPABASE CONNECTION TEST
   useEffect(() => {
@@ -393,7 +324,7 @@ function App() {
     // Empty function to handle logo clicks
   }, []);
 
-  // 🚀 UPDATED: Enhanced song request submission with optimistic updates
+  // 🚀 UPDATED: Simple song request submission without optimistic updates
   const handleSubmitRequest = useCallback(async (data: RequestFormData): Promise<boolean> => {
     if (requestInProgressRef.current) {
       console.log('Request already in progress, please wait...');
@@ -402,30 +333,6 @@ function App() {
     }
     
     requestInProgressRef.current = true;
-
-    // 🚀 NEW: Create optimistic request immediately
-    const tempId = `temp_${Date.now()}`;
-    const optimisticRequest: SongRequest = {
-      id: tempId,
-      title: data.title,
-      artist: data.artist || '',
-      votes: 0,
-      isLocked: false,
-      isPlayed: false,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      requesters: [{
-        id: currentUser?.id || currentUser?.name || 'unknown',
-        name: data.requestedBy,
-        photo: data.userPhoto || generateDefaultAvatar(data.requestedBy),
-        message: data.message || '',
-        timestamp: new Date().toISOString()
-      }]
-    };
-
-    // INSTANT UI UPDATE - Add to optimistic state
-    setOptimisticRequests(prev => new Map([...prev, [tempId, optimisticRequest]]));
-    console.log('➕ Added optimistic request:', data.title);
 
     try {
       // Check if the song is already requested
@@ -492,37 +399,11 @@ function App() {
         if (requesterError) throw requesterError;
       }
 
-      // Success - clean up optimistic request after real data arrives
-      setTimeout(() => {
-        if (mountedRef.current) {
-          const realRequestExists = requests.some(req => 
-            req.title === data.title && req.artist === (data.artist || '')
-          );
-          
-          if (realRequestExists) {
-            console.log('🧹 Removing optimistic request, real data found:', data.title);
-            setOptimisticRequests(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(tempId);
-              return newMap;
-            });
-          }
-        }
-      }, 3000);
-
       requestRetriesRef.current = 0;
       toast.success('Your request has been added to the queue!');
       return true;
     } catch (error) {
       console.error('Error submitting request:', error);
-      
-      // Remove failed optimistic request immediately
-      console.log('❌ Request failed, removing optimistic request:', data.title);
-      setOptimisticRequests(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(tempId);
-        return newMap;
-      });
       
       // Handle retries for network errors
       if (error instanceof Error && 
@@ -563,7 +444,7 @@ function App() {
     } finally {
       requestInProgressRef.current = false;
     }
-  }, [reconnectRequests, currentUser, requests]);
+  }, [reconnectRequests, currentUser]);
 
   // 🚀 UPDATED: Enhanced vote handler with atomic database function and optimistic updates
   const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
@@ -722,10 +603,7 @@ function App() {
 
       if (error) throw error;
       
-      // Also clear optimistic state
-      setOptimisticRequests(new Map());
-      setOptimisticVotes(new Map());
-      
+      // No optimistic votes to clear
       toast.success('Queue cleared successfully!');
     } catch (error) {
       console.error('Error clearing queue:', error);
