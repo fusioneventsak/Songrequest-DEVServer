@@ -8,7 +8,6 @@ interface UpvoteListProps {
   requests: SongRequest[];
   onVote: (id: string) => Promise<boolean>;
   currentUserId: string;
-  votingStates?: Set<string>;
 }
 
 export function UpvoteList({ requests, onVote, currentUserId, votingStates = new Set() }: UpvoteListProps) {
