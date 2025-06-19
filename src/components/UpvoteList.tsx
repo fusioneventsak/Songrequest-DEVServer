@@ -53,16 +53,22 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
     e.preventDefault();
 
     if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
-    // FIXED: Allow voting with just a name, don't require complete profile
-    if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
-      console.log('Cannot vote: missing user ID or already voting');
-    }
+      // FIXED: Allow voting with just a name, don't require complete profile
+      if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
+        console.log('Cannot vote: missing user ID or already voting');
+      }
 
-    try {
-      const success = await onVote(id);
-      
-      if (success) {
-        console.log('Vote successful');
+      try {
+        const success = await onVote(id);
+        
+        if (success) {
+          console.log('Vote successful');
+        }
+      } catch (error) {
+        console.error('Vote failed:', error);
+        toast.error('Failed to vote. Please try again.');
+      }
+    }
   };
 
   if (activeRequests.length === 0) {
@@ -208,7 +214,7 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
                     }`}
                     style={{
                       backgroundColor: !request.isLocked && !isVoting ? undefined : undefined,
-                      backgroundImage: !request.isLocked && !isVoting ? `linear-gradient(to right, ${accentColor}, ${secondaryColor})` : undefined
+                      backgroundImage: !request.isLocked && !isVoting ? `linear-gradient(to right, ${accentColor}, ${accentColor})` : undefined
                     }}
                   >
                     {isVoting ? (
