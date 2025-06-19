@@ -72,8 +72,7 @@ function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isAppActive, setIsAppActive] = useState(true);
   
-  // Add optimistic states (was missing!)
-  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+  // 🚀 SIMPLIFIED: Remove optimistic vote states, keep only optimistic requests
   const [optimisticRequests, setOptimisticRequests] = useState<Map<string, Partial<SongRequest>>>(new Map());
   
   // Ref to track if component is mounted
@@ -153,25 +152,24 @@ function App() {
     }
   }, []);
 
-  // 🚀 CRITICAL FIX: Use the same mergedRequests pattern as KioskPage
+  // 🚀 SIMPLIFIED: mergedRequests without optimistic vote complications
   const mergedRequests = useMemo(() => {
-    console.log('🔀 App: Creating merged requests (KioskPage pattern):', {
+    console.log('🔀 App: Creating simplified merged requests:', {
       realRequests: requests.length,
-      optimisticRequests: optimisticRequests.size,
-      optimisticVotes: optimisticVotes.size
+      optimisticRequests: optimisticRequests.size
     });
 
-    // Start with real requests and apply optimistic vote updates (same as KioskPage)
+    // Start with real requests - no optimistic vote modifications
     const realRequests = requests.map(req => ({
       ...req,
-      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0,
       // Ensure proper structure
       id: req.id || 'unknown',
       title: req.title || 'Unknown Song',
       artist: req.artist || '',
       requesters: Array.isArray(req.requesters) ? req.requesters : [],
+      votes: req.votes || 0, // Use real vote count only
       isLocked: Boolean(req.isLocked),
-      isPlayed: Boolean(req.isPlayed), // This is critical - ensure it's properly set
+      isPlayed: Boolean(req.isPlayed),
       status: req.status || 'pending',
       createdAt: req.createdAt ? new Date(req.createdAt) : new Date()
     }));
@@ -209,14 +207,13 @@ function App() {
         createdAt: req.createdAt || new Date()
       })) as SongRequest[];
 
-    // Combine and filter out played requests (same as KioskPage)
+    // Combine and filter out played requests
     const merged = [...realRequests, ...validOptimisticRequests].filter(req => {
       const shouldInclude = !req.isPlayed;
-      console.log(`Request "${req.title}": isPlayed=${req.isPlayed}, included=${shouldInclude}`);
       return shouldInclude;
     });
 
-    console.log('✅ Merged requests created:', {
+    console.log('✅ Simplified merged requests created:', {
       total: merged.length,
       fromReal: realRequests.filter(r => !r.isPlayed).length,
       fromOptimistic: validOptimisticRequests.length,
@@ -224,7 +221,7 @@ function App() {
     });
 
     return merged;
-  }, [requests, optimisticRequests, optimisticVotes]);
+  }, [requests, optimisticRequests]);
 
   // Add debugging for when requests change
   useEffect(() => {
@@ -250,6 +247,12 @@ function App() {
   useEffect(() => {
     console.log('🔄 App: mergedRequests changed:', {
       length: mergedRequests.length,
+      lockedRequests: mergedRequests.filter(r => r.isLocked).map(r => ({
+        id: r.id,
+        title: r.title,
+        isLocked: r.isLocked,
+        isPlayed: r.isPlayed
+      })),
       mergedRequests: mergedRequests.map(r => ({
         id: r.id,
         title: r.title,
@@ -890,7 +893,7 @@ function App() {
     }
   }, [reconnectRequests]);
 
-  // 🚀 ENHANCED: Create separate vote handlers for different user types
+  // 🚀 SIMPLIFIED: Remove optimistic vote states causing processing loops
   const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
     return handleUserVote(id, false); // false = not kiosk user
   }, []);
@@ -900,7 +903,7 @@ function App() {
     return handleUserVote(id, true); // true = kiosk user
   }, []);
 
-  // Unified vote handler
+  // 🚀 SIMPLIFIED: Direct vote handler without optimistic states
   const handleUserVote = useCallback(async (id: string, isKioskUser: boolean): Promise<boolean> => {
     console.log('👍 Voting for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
     
@@ -920,19 +923,15 @@ function App() {
         return false;
       }
 
-      // INSTANT UI UPDATE - Optimistically increment vote
-      const currentRequest = requests.find(r => r.id === id);
-      const currentVotes = optimisticVotes.get(id) ?? currentRequest?.votes ?? 0;
-      setOptimisticVotes(prev => new Map([...prev, [id, currentVotes + 1]]));
-      console.log(`📊 Optimistically incremented vote for request ${id}: ${currentVotes} -> ${currentVotes + 1}`);
-
       let success = false;
 
       if (isKioskUser) {
         // Kiosk users: Direct increment without user tracking
         console.log('🏪 Kiosk vote - direct increment without user tracking');
         
-        const newVoteCount = currentVotes + 1;
+        const currentRequest = requests.find(r => r.id === id);
+        const newVoteCount = (currentRequest?.votes || 0) + 1;
+        
         const { error } = await supabase
           .from('requests')
           .update({ 
@@ -987,6 +986,7 @@ function App() {
             if (insertError) {
               // If user_votes table doesn't exist, just increment the counter
               console.log('📊 Fallback: Direct vote increment');
+              const currentRequest = requests.find(r => r.id === id);
               const newVoteCount = (currentRequest?.votes || 0) + 1;
               
               const { error: updateError } = await supabase
@@ -998,6 +998,7 @@ function App() {
               success = true;
             } else {
               // Also increment the counter in requests table
+              const currentRequest = requests.find(r => r.id === id);
               const newVoteCount = (currentRequest?.votes || 0) + 1;
               
               const { error: updateError } = await supabase
@@ -1016,40 +1017,20 @@ function App() {
         console.log('✅ Vote added successfully');
         toast.success(isKioskUser ? '🔥 Vote added!' : 'Vote added!');
         
-        // Keep optimistic vote for a short time, then let real data take over
+        // Force immediate refresh to show updated vote count
         setTimeout(() => {
-          if (mountedRef.current) {
-            console.log(`🧹 Removing optimistic vote for request ${id}`);
-            setOptimisticVotes(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(id);
-              return newMap;
-            });
-          }
-        }, 1000);
+          console.log('🔄 Forcing immediate refresh after vote...');
+          reconnectRequests();
+        }, 100);
         
         return true;
       } else {
         console.log('❌ Vote rejected - already voted');
-        // Revert optimistic update if already voted
-        setOptimisticVotes(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(id);
-          return newMap;
-        });
-        
         toast.error('You have already voted for this request');
         return false;
       }
     } catch (error) {
       console.error('❌ Error voting for request:', error);
-      
-      // Revert optimistic update on error
-      setOptimisticVotes(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(id);
-        return newMap;
-      });
       
       if (error instanceof Error && (
         error.message.includes('Failed to fetch') || 
@@ -1063,7 +1044,7 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline, requests, optimisticVotes, mountedRef]);
+  }, [currentUser, isOnline, requests, reconnectRequests]);
 
   // 🚀 FIXED: Enhanced lock handler with fallback and immediate updates
   const handleLockRequest = useCallback(async (id: string) => {
@@ -1235,8 +1216,7 @@ function App() {
 
       if (error) throw error;
       
-      // Clear all optimistic states (same as KioskPage)
-      setOptimisticVotes(new Map());
+      // Clear optimistic requests
       setOptimisticRequests(new Map());
       console.log('✅ Queue cleared successfully (including optimistic states)');
       toast.success('Queue cleared successfully!');
