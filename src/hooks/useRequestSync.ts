@@ -23,18 +23,6 @@ export function useRequestSync({
   setRequests,
   isOnline,
   currentUser
-interface UseRequestSyncProps {
-  requests: SongRequest[];
-  setRequests: (requests: SongRequest[]) => void;
-  isOnline: boolean;
-  currentUser: any;
-}
-
-export function useRequestSync({
-  requests,
-  setRequests,
-  isOnline,
-  currentUser
 }: UseRequestSyncProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -151,7 +139,6 @@ export function useRequestSync({
       }
     } catch (error) {
       console.error('❌ Error fetching requests:', error);
-          setRequests(cachedSetLists);
         // Try to use cached data if available
         const cachedRequests = cacheRef.current?.data;
         if (cachedRequests && cachedRequests.length > 0) {
@@ -168,14 +155,13 @@ export function useRequestSync({
             fetchRequests(true);
           }, delay);
         }
-      }
     } finally {
       if (mountedRef.current) {
         setIsLoading(false);
       }
       fetchInProgressRef.current = false;
     }
-  }, [onUpdate, retryCount]);
+  }, [setRequests]);
 
   // Setup real-time subscription with debouncing
   useEffect(() => {
@@ -315,28 +301,9 @@ export function useRequestSync({
   }, [fetchRequests]);
 
   return {
-  // Function to manually reconnect and refresh data
-  const reconnectRequests = useCallback(() => {
-    console.log('🔄 Manually reconnecting requests subscription');
-    
-    // Clean up existing subscription
-    if (subscriptionRef.current) {
-      try {
-        subscriptionRef.current.unsubscribe();
-      } catch (e) {
-        console.warn('Error unsubscribing:', e);
-      }
-    }
-    
-    // Set up new subscription
-    setupSubscription();
-    
-    // Force a fresh fetch
-    fetchRequests(true);
-  }, [fetchRequests]);
-
+    isLoading,
     error,
-    reconnectRequests
+    refresh,
     reconnectRequests
   };
 }
