@@ -199,41 +199,48 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
 
               {/* Vote Button */}
               <div className="mt-4 flex justify-end">
-                <button
-                  onClick={(e) => handleVote(request.id, e)}
-                  disabled={isVoting || request.isLocked}
-                  className={`
-                    px-6 py-3 rounded-lg font-medium transition-all transform hover:scale-105 disabled:transform-none
-                    flex items-center space-x-2 min-w-[120px] justify-center
-                    ${request.isLocked
-                      ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                      : isVoting
-                      ? 'bg-purple-600/50 text-purple-200 cursor-wait'
-                      : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-xl'
-                    }
-                  `}
-                  style={{
-                    backgroundColor: !request.isLocked && !isVoting ? undefined : undefined,
-                    backgroundImage: !request.isLocked && !isVoting ? `linear-gradient(to right, ${accentColor}, ${secondaryColor})` : undefined
-                  }}
-                >
-                  {isVoting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                      <span>Voting...</span>
-                    </>
-                  ) : request.isLocked ? (
-                    <>
-                      <Crown className="w-5 h-5" />
-                      <span>Locked</span>
-                    </>
-                  ) : (
-                    <>
-                      <ThumbsUp className="w-5 h-5" />
-                      <span>Vote</span>
-                    </>
-                  )}
-                </button>
+                {request.id.startsWith('temp_') ? (
+                  <div className="px-6 py-3 rounded-lg bg-gray-600/50 text-gray-400 flex items-center space-x-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400"></div>
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => handleVote(request.id, e)}
+                    disabled={isVoting || request.isLocked}
+                    className={`
+                      px-6 py-3 rounded-lg font-medium transition-all transform hover:scale-105 disabled:transform-none
+                      flex items-center space-x-2 min-w-[120px] justify-center
+                      ${request.isLocked
+                        ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                        : isVoting
+                        ? 'bg-purple-600/50 text-purple-200 cursor-wait'
+                        : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-xl'
+                      }
+                    `}
+                    style={{
+                      backgroundColor: !request.isLocked && !isVoting ? undefined : undefined,
+                      backgroundImage: !request.isLocked && !isVoting ? `linear-gradient(to right, ${accentColor}, ${secondaryColor})` : undefined
+                    }}
+                  >
+                    {isVoting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>Voting...</span>
+                      </>
+                    ) : request.isLocked ? (
+                      <>
+                        <Crown className="w-5 h-5" />
+                        <span>Locked</span>
+                      </>
+                    ) : (
+                      <>
+                        <ThumbsUp className="w-5 h-5" />
+                        <span>Vote</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Progress Bar for Engagement */}
