@@ -133,7 +133,7 @@ export function UserFrontend({
     }
   }, [currentUser, onSubmitRequest]);
 
-  // Simplified vote handler - App.tsx handles optimistic updates
+  // Simplified vote handler - no temporary request validation needed
   const handleVote = useCallback(async (requestId: string): Promise<boolean> => {
     if (!currentUser) {
       toast.error('Please set up your profile first');
@@ -142,12 +142,6 @@ export function UserFrontend({
 
     if (votingStates.has(requestId)) {
       return false; // Already voting
-    }
-
-    // Don't allow voting on optimistic (temporary) requests
-    if (requestId.startsWith('temp_')) {
-      toast.error('Please wait for the request to be processed before voting');
-      return false;
     }
 
     setVotingStates(prev => new Set([...prev, requestId]));
