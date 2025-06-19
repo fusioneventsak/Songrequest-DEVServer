@@ -1665,6 +1665,22 @@ function App() {
                   <ErrorBoundary>
                     <SettingsManager />
                   </ErrorBoundary>
+
+                  <ErrorBoundary>
+                    <TickerManager 
+                      nextSong={lockedRequest
+                        ? {
+                            title: lockedRequest.title,
+                            artist: lockedRequest.artist
+                          }
+                        : undefined
+                      }
+                      isActive={isTickerActive}
+                      customMessage={tickerMessage}
+                      onUpdateMessage={setTickerMessage}
+                      onToggleActive={() => setIsTickerActive(!isTickerActive)}
+                    />
+                  </ErrorBoundary>
                 </>
               )}
             </div>

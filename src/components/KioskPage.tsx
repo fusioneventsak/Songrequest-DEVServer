@@ -47,16 +47,20 @@ export function KioskPage({
   // Create merged requests with optimistic updates for instant feedback
   const mergedRequests = useMemo(() => {
     // Start with real requests and apply optimistic vote updates
-    const realRequests = requests.map(req => ({
-      ...req,
-      votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
-    }));
+    const realRequests = requests
+      .filter(req => req && !req.isPlayed) // Filter out played requests
+      .map(req => ({
+        ...req,
+        votes: optimisticVotes.get(req.id) ?? req.votes ?? 0,
+        // Ensure requesters is always an array
+        requesters: Array.isArray(req.requesters) ? req.requesters : []
+      }));
 
     // Add any optimistic new requests
     const optimisticRequestsList = Array.from(optimisticRequests.values())
       .filter(req => req.id?.startsWith('temp_'));
 
-    return [...realRequests, ...optimisticRequestsList].filter(req => !req.isPlayed);
+    return [...realRequests, ...optimisticRequestsList];
   }, [requests, optimisticRequests, optimisticVotes]);
 
   // Filter songs based on active set list and search
@@ -177,7 +181,8 @@ export function KioskPage({
   // Enhanced vote handler with atomic database function and optimistic updates
   const handleVote = useCallback(async (requestId: string) => {
     if (votingStates.has(requestId)) {
-      return; // Already voting
+      console.log('Already voting on this request, skipping');
+      return;
     }
 
     setVotingStates(prev => new Set([...prev, requestId]));
@@ -188,16 +193,22 @@ export function KioskPage({
 
     // INSTANT UI UPDATE - Optimistically increment vote immediately
     setOptimisticVotes(prev => new Map([...prev, [requestId, currentVotes + 1]]));
-    console.log(`📊 Optimistically incremented vote for request ${requestId}: ${currentVotes} -> ${currentVotes + 1}`);
+
+    // Generate a unique kiosk user ID
+    const kioskUserId = `kiosk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     try {
-      // Use atomic database function for instant voting (kiosk allows anonymous voting)
-      const { data, error } = await supabase.rpc('add_vote', {
-        p_request_id: requestId,
-        p_user_id: `kiosk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-      });
+      // Use the atomic database function for voting
+      const { data, error } = await supabase
+        .rpc('add_vote', {
+          p_request_id: requestId,
+          p_user_id: kioskUserId
+        });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error in add_vote RPC:', error);
+        throw error;
+      }
 
       if (data === true) {
         toast.success('🔥 Vote added!', {
@@ -211,16 +222,8 @@ export function KioskPage({
         
         // Keep optimistic vote for a moment, then let real data take over
         setTimeout(() => {
-          if (mountedRef.current) {
-            setOptimisticVotes(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(requestId);
-              return newMap;
-            });
-          }
+          // Let the real data take over naturally
         }, 1500);
-        
-        return true;
       } else {
         // Revert optimistic update if voting failed
         setOptimisticVotes(prev => {
@@ -243,11 +246,16 @@ export function KioskPage({
       
       toast.error('Failed to vote. Please try again.');
     } finally {
-      setVotingStates(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(requestId);
-        return newSet;
-      });
+      // Clear voting state after a short delay
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setVotingStates(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(requestId);
+            return newSet;
+          });
+        }
+      }, 300);
     }
   }, [requests, optimisticVotes, votingStates]);
 
@@ -269,21 +277,9 @@ export function KioskPage({
       if (a.isLocked && !b.isLocked) return -1;
       if (!a.isLocked && b.isLocked) return 1;
       
-      // FIXED: Calculate priority based on requester count AND votes, ensuring we handle undefined values
-      const requestersA = Array.isArray(a.requesters) ? a.requesters.length : 0;
-      const requestersB = Array.isArray(b.requesters) ? b.requesters.length : 0;
-      const priorityA = requestersA + (a.votes || 0);
-      const priorityB = requestersB + (b.votes || 0);
-      
-      // First compare priority (requester count + upvotes)
-      if (priorityA !== priorityB) {
-        return priorityB - priorityA;
-      }
-      
-      // If priority is the same, then compare requester count
-      if (requestersA !== requestersB) {
-        return requestersB - requestersA;
-      }
+      // Then by total priority (requester count + votes)
+      const priorityA = (a.requesters?.length || 0) + (a.votes || 0);
+      const priorityB = (b.requesters?.length || 0) + (b.votes || 0);
       
       return priorityB - priorityA;
     });

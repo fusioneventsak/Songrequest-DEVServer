@@ -29,7 +29,7 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
   const [optimisticLocks, setOptimisticLocks] = useState<Set<string>>(new Set());
   
   // Track if component is mounted
-  const mountedRef = useRef(true);
+  const mountedRef = useRef<boolean>(true);
   
   // Handle queue reset with confirmation
   const handleResetQueue = async () => {
@@ -62,10 +62,16 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
     // Get the current locked request from the server data
     const serverLockedIds = new Set(requests.filter(r => r.isLocked).map(r => r.id));
     const optimisticLockedIds = new Set(optimisticLocks);
-    
-    // If server state matches optimistic state, clear optimistic state
+
     // FIXED: Improved logic to clear optimistic locks when server state is updated
     const needsClear = (
+      // Either the server has the same locks we optimistically set
+      (Array.from(optimisticLockedIds).every(id => serverLockedIds.has(id)) && 
+       serverLockedIds.size <= 1) ||
+      // Or the server has different locks than what we set (meaning our action was processed)
+      (optimisticLockedIds.size > 0 && serverLockedIds.size > 0 && 
+       !Array.from(serverLockedIds).every(id => optimisticLockedIds.has(id)))
+    );
       // Either the server has the same locks we optimistically set
       (Array.from(optimisticLockedIds).every(id => serverLockedIds.has(id)) && 
        serverLockedIds.size <= 1) ||
@@ -223,7 +229,7 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
   const handleLockRequest = useCallback(async (id: string) => {
     if (!mountedRef.current) return;
     
-    setLockingStates(prev => new Set([...prev, id]));
+    setLockingStates(prev => new Set(prev).add(id));
     
     // Get the current request
     const request = requests.find(r => r.id === id);
@@ -234,7 +240,7 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
     
     // INSTANT OPTIMISTIC UPDATE - update UI immediately
     setOptimisticLocks(prev => {
-      const newSet = new Set();
+      const newSet = new Set<string>();
       if (newLockedState) {
         newSet.add(id); // Only this request is locked
       }
@@ -254,6 +260,13 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
       }
       
       console.log('✅ Lock status updated in database');
+      
+      // Force a refresh of the requests data to ensure real-time updates
+      setTimeout(() => {
+        if (mountedRef.current) {
+          onLockRequest(id);
+        }
+      }, 300);
       
       // Force a refresh of the requests data to ensure real-time updates
       setTimeout(() => {
@@ -280,7 +293,7 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
     } finally {
       setTimeout(() => {
         setLockingStates(prev => {
-          const newSet = new Set(prev);
+          const newSet = new Set<string>(prev);
           newSet.delete(id);
           return newSet;
         });
@@ -291,7 +304,7 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
   // Toggle expanded/collapsed state for a request
   const toggleRequestExpanded = (id: string) => {
     setExpandedRequests(prev => {
-      const newSet = new Set(prev);
+      const newSet = new Set<string>(prev);
       if (newSet.has(id)) {
         newSet.delete(id);
       } else {

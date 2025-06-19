@@ -23,6 +23,18 @@ export function useRequestSync({
   setRequests,
   isOnline,
   currentUser
+interface UseRequestSyncProps {
+  requests: SongRequest[];
+  setRequests: (requests: SongRequest[]) => void;
+  isOnline: boolean;
+  currentUser: any;
+}
+
+export function useRequestSync({
+  requests,
+  setRequests,
+  isOnline,
+  currentUser
 }: UseRequestSyncProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -140,7 +152,13 @@ export function useRequestSync({
     } catch (error) {
       console.error('❌ Error fetching requests:', error);
           setRequests(cachedSetLists);
-        setError(error as Error);
+        // Try to use cached data if available
+        const cachedRequests = cacheRef.current?.data;
+        if (cachedRequests && cachedRequests.length > 0) {
+          console.log('Using cached requests due to fetch error');
+          setRequests(cachedRequests);
+        }
+        setError(error instanceof Error ? error : new Error(String(error)));
         
         // Retry logic with exponential backoff
         if (retryCount < MAX_RETRY_ATTEMPTS) {
@@ -255,6 +273,26 @@ export function useRequestSync({
     };
   }, [fetchRequests]);
 
+  // Function to manually reconnect and refresh data
+  const reconnectRequests = useCallback(() => {
+    console.log('🔄 Manually reconnecting requests subscription');
+    
+    // Clean up existing subscription
+    if (subscriptionRef.current) {
+      try {
+        subscriptionRef.current.unsubscribe();
+      } catch (e) {
+        console.warn('Error unsubscribing:', e);
+      }
+    }
+    
+    // Set up new subscription
+    setupSubscription();
+    
+    // Force a fresh fetch
+    fetchRequests(true);
+  }, [fetchRequests]);
+
   // Initial fetch
   useEffect(() => {
     fetchRequests();
@@ -297,10 +335,8 @@ export function useRequestSync({
     fetchRequests(true);
   }, [fetchRequests]);
 
-  return {
     error,
-    refresh,
-    refresh: () => fetchRequests(true),
+    reconnectRequests
     reconnectRequests
   };
 }
