@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>uRequest Live - Band Request Hub</title>
+    
+    <!-- Instant Color Loading Script - Must be before any React code -->
+    <script>
+      (function() {
+        try {
+          // Try to load saved colors from localStorage immediately
+          const savedColors = localStorage.getItem('uiColors');
+          
+          // Define default colors to use if no saved colors exist
+          const defaultColors = {
+            '--frontend-bg-color': '#13091f',
+            '--frontend-accent-color': '#ff00ff',
+            '--frontend-header-bg': '#13091f',
+            '--frontend-secondary-accent': '#9d00ff',
+            '--song-border-color': '#ff00ff',
+            '--neon-pink': '#ff00ff',
+            '--neon-purple': '#9d00ff',
+            '--nav-bg-color': '#0f051d',
+            '--highlight-color': '#ff00ff'
+          };
+          
+          // Create or get the instant colors style element
+          let style = document.getElementById('instant-colors-style');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = 'instant-colors-style';
+            document.head.appendChild(style);
+          }
+          
+          let colorsToApply = defaultColors;
+          
+          if (savedColors) {
+            try {
+              const parsedColors = JSON.parse(savedColors);
+              colorsToApply = { ...defaultColors, ...parsedColors };
+              console.log('✅ Loaded saved colors from localStorage:', parsedColors);
+            } catch (parseError) {
+              console.warn('⚠️ Failed to parse saved colors, using defaults:', parseError);
+            }
+          } else {
+            console.log('ℹ️ No saved colors found, using defaults');
+          }
+          
+          // Create CSS rules for instant application using high specificity
+          const cssRules = Object.entries(colorsToApply).map(([property, value]) => {
+            return `:root { ${property}: ${value} !important; }`;
+          }).join('\n');
+          
+          // Apply the CSS rules immediately
+          style.textContent = cssRules;
+          
+          console.log('🎨 Applied colors instantly via CSS injection before React loads');
+          
+        } catch (error) {
+          console.error('❌ Error in instant color loading:', error);
+          
+          // Fallback: Apply basic default colors directly to root
+          try {
+            const root = document.documentElement;
+            root.style.setProperty('--neon-pink', '#ff00ff', 'important');
+            root.style.setProperty('--neon-purple', '#9d00ff', 'important');
+            root.style.setProperty('--frontend-bg-color', '#13091f', 'important');
+            root.style.setProperty('--frontend-accent-color', '#ff00ff', 'important');
+            root.style.setProperty('--frontend-header-bg', '#13091f', 'important');
+            root.style.setProperty('--frontend-secondary-accent', '#9d00ff', 'important');
+            root.style.setProperty('--song-border-color', '#ff00ff', 'important');
+            console.log('🔧 Applied fallback colors directly to root');
+          } catch (fallbackError) {
+            console.error('💥 Complete failure in color loading:', fallbackError);
+          }
+        }
+      })();
+    </script>
+    
+    <!-- Preload critical resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Prevent flash of unstyled content -->
+    <style>
+      /* Critical CSS to prevent FOUC */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--frontend-bg-color, #13091f);
+        color: white;
+        font-family: system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
+        scroll-behavior: smooth;
+      }
+      
+      #root {
+        min-height: 100vh;
+        background-color: var(--frontend-bg-color, #13091f);
+      }
+      
+      /* Loading state */
+      .app-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background-color: var(--frontend-bg-color, #13091f);
+        color: var(--frontend-accent-color, #ff00ff);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Fallback loading indicator -->
+      <div class="app-loading">
+        <div>Loading uRequest Live...</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

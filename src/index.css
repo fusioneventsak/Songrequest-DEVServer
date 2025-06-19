@@ -1,0 +1,284 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default CSS variables - these will be overridden by JS in the head before render */
+:root {
+  --frontend-header-bg: #13091f;
+  --frontend-bg-color: #0f051d;
+  --frontend-accent-color: #ff00ff;
+  --frontend-secondary-accent: #9d00ff;
+  --neon-pink: #ff00ff;
+  --neon-purple: #9d00ff;
+  --song-border-color: #ff00ff;
+  --nav-bg-color: #0f051d;
+  --highlight-color: #ff00ff;
+}
+
+/* Base Styles */
+body {
+  @apply bg-darker-purple text-white;
+  overscroll-behavior-y: none;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  min-height: 100vh;
+}
+
+html {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+/* Frontend Container */
+.frontend-container {
+  background-color: var(--frontend-bg-color);
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  position: relative;
+  isolation: isolate;
+  overflow-x: hidden;
+  padding-bottom: 16px;
+}
+
+/* Frontend Header */
+.frontend-header {
+  background-color: var(--frontend-header-bg) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--frontend-accent-color) 20%, transparent);
+  width: 100%;
+  box-sizing: border-box;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  transition: transform 0.3s ease;
+  height: 100px !important;
+}
+
+.frontend-header.header-hidden {
+  transform: translateY(-100%);
+}
+
+/* User profile styles */
+.user-profile {
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0.25rem;
+  border-radius: 9999px;
+  background-color: transparent;
+  border: none;
+  outline: none;
+}
+
+.user-profile:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.user-profile-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background-color: var(--highlight-color);
+  color: white;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  box-shadow: 0 0 0 1px var(--frontend-bg-color);
+}
+
+/* Glass Effect */
+.glass-effect {
+  background-color: rgba(26, 11, 46, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--neon-purple);
+  border-opacity: 0.2;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Neon Button */
+.neon-button {
+  @apply px-4 py-2 bg-neon-purple/10 text-white rounded-md;
+  border: 1px solid var(--neon-pink);
+  color: var(--neon-pink);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.neon-button:hover {
+  background-color: var(--neon-pink);
+  color: white;
+  box-shadow: 0 0 15px color-mix(in srgb, var(--neon-pink) 50%, transparent);
+}
+
+.neon-button:active {
+  transform: translateY(1px);
+}
+
+/* Neon Text */
+.neon-text {
+  color: var(--neon-pink);
+  text-shadow: 0 0 5px var(--neon-pink);
+}
+
+/* Input Fields */
+.input-field {
+  @apply w-full px-4 py-2 rounded-lg text-gray-800 bg-white;
+  border: 1px solid color-mix(in srgb, var(--neon-purple) 30%, transparent);
+  box-sizing: border-box;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--neon-pink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--neon-pink) 20%, transparent);
+}
+
+/* Navigation Styles */
+.nav-header, .nav-bottom {
+  background-color: var(--nav-bg-color);
+  border-color: color-mix(in srgb, var(--frontend-accent-color) 20%, transparent);
+}
+
+.nav-item {
+  color: var(--highlight-color);
+}
+
+.nav-item-active {
+  color: var(--highlight-color);
+  text-shadow: 0 0 10px var(--highlight-color);
+}
+
+/* Mobile optimizations */
+@media (max-width: 374px) {
+  .max-w-7xl {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  body, html, #root, .frontend-container {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    padding: 0;
+    margin: 0;
+  }
+
+  .max-w-7xl {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    box-sizing: border-box;
+  }
+
+  .glass-effect {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+  }
+
+  .grid {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  main {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Ensure text elements don't overflow */
+  h1, h2, h3, p, span {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+}
+
+/* iPhone fixes */
+@supports (-webkit-touch-callout: none) {
+  .bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  
+  .frontend-header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Request locked styles */
+.request-locked {
+  border-color: var(--neon-pink) !important;
+  border-width: 2px !important;
+  box-shadow: 0 0 20px rgba(var(--neon-pink), 0.5) !important;
+  animation: glow 2s ease-in-out infinite !important;
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(var(--neon-pink), 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(var(--neon-pink), 0.8);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+}

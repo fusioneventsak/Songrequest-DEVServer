@@ -1,0 +1,312 @@
+Comprehensive Prompt to Build a Band Request Hub Application
+Project Overview
+Create a full-stack web application called "Band Request Hub" that allows audience members at live music events to request songs, view the current set list, and upvote other people's requests. The band/performer can view, manage, and respond to these requests through an admin interface.
+Core Features
+User-Facing Features
+
+User Profile Creation
+
+Users can create a profile with their name and optional photo
+Support for uploading profile photos or generating avatar based on initials
+Profile information persistence using localStorage
+
+
+Song Request System
+
+Browse available songs from the band's library
+Search functionality by title, artist, or genre
+Submit requests with optional personal messages
+View request status (pending, approved, locked as next, played)
+Upvote other people's requests
+
+
+Set List View
+
+View currently active set list if the band has activated one
+See which songs the band has available to play
+
+
+Real-Time Updates
+
+Ticker/banner showing next song to be played
+Updates when requests are approved or marked as played
+
+
+
+Admin Features
+
+Authentication
+
+Secure login for band members/administrators
+
+
+Song Library Management
+
+Add, edit, and delete songs in the library
+Add song details: title, artist, genre, key, notes
+Bulk import songs via CSV or text input
+Automatic album art fetching from iTunes API
+
+
+Set List Management
+
+Create and manage set lists for different events
+Add songs from the library to set lists
+Activate/deactivate set lists for the public interface
+Create set lists by genre
+
+
+Request Queue Management
+
+View all pending requests
+Sort by popularity (votes), requesters count, or timestamp
+Lock a request as "next up" to display in ticker
+Mark requests as played
+View requester information (name, photo, message)
+Reset queue between sets
+
+
+Customization
+
+Update logo
+Customize app color scheme
+Set custom messages for the ticker
+
+
+
+Technical Requirements
+Frontend
+
+Technology Stack
+
+React with TypeScript for type safety
+Vite for fast development and building
+Tailwind CSS for styling
+
+
+Components
+
+Create modular components for reusability
+Implement responsive design for mobile and desktop
+Focus on smooth animations and transitions
+
+
+State Management
+
+Use React hooks for local state
+Implement custom hooks for shared functionality
+Real-time data synchronization with backend
+
+
+
+Backend
+
+Database
+
+Use Supabase for backend (PostgreSQL database)
+Design schema with the following tables:
+
+songs (id, title, artist, genre, key, notes, album_art_url)
+requests (id, title, artist, votes, status, is_locked, is_played)
+requesters (id, request_id, name, photo, message, timestamp)
+set_lists (id, name, date, notes, is_active)
+set_list_songs (id, set_list_id, song_id, position)
+ui_settings (band_name, band_logo_url, theme colors)
+
+
+
+
+API
+
+Implement Supabase client for data access
+Set up real-time listeners for live updates
+Handle image uploads and processing
+
+
+Authentication
+
+Simple authentication for admin access
+Public access for users (no auth required)
+
+
+
+UI/UX Design
+User Interface
+
+Public View
+
+Clean, modern interface with focus on usability
+Mobile-first approach
+Neon/glassy visual theme with customizable colors
+Clear navigation between request and upvote sections
+
+
+Admin Interface
+
+Dashboard layout with tabbed sections
+Intuitive controls for managing requests and set lists
+Quick-access actions for common tasks
+Visual feedback for admin actions
+
+
+
+User Experience
+
+Performance
+
+Fast load times and smooth transitions
+Efficient rendering with React
+Optimized for mobile devices and lower bandwidth
+
+
+Accessibility
+
+Support for screen readers
+Sufficient color contrast
+Keyboard navigation
+
+
+
+Implementation Guidance
+Phase 1: Project Setup and Basic Structure
+
+Initialize React project with Vite and TypeScript
+Set up Tailwind CSS
+Create Supabase project and database schema
+Implement basic routing and layout components
+
+Phase 2: Core Functionality
+
+Create user profile flow
+Implement song library management
+Build request submission and viewing system
+Develop set list creation and management features
+
+Phase 3: Real-Time Features and Polish
+
+Add real-time updates with Supabase subscriptions
+Implement request voting system
+Create ticker/banner for next song
+Add customization options for admins
+
+Phase 4: Testing and Deployment
+
+Test all features for functionality and usability
+Optimize performance and fix bugs
+Deploy to hosting platform (Vercel, Netlify, etc.)
+Set up monitoring and analytics
+
+Data Structures
+Key Type Definitions
+typescriptinterface Song {
+  id: string;
+  title: string;
+  artist: string;
+  genre?: string;
+  key?: string;
+  notes?: string;
+  albumArtUrl?: string;
+}
+
+interface SongRequest {
+  id: string;
+  title: string;
+  artist?: string;
+  requesters: {
+    name: string;
+    photo: string;
+    message?: string;
+    timestamp: Date;
+  }[];
+  votes: number;
+  status: 'pending' | 'approved' | 'rejected' | 'played';
+  isLocked?: boolean;
+  isPlayed?: boolean;
+  createdAt: Date;
+}
+
+interface SetList {
+  id: string;
+  name: string;
+  date: Date | string;
+  songs: Song[];
+  notes?: string;
+  isActive?: boolean;
+}
+
+interface User {
+  id?: string;
+  name: string;
+  photo: string;
+}
+Specific Component Requirements
+Public Components
+
+LandingPage: User profile creation/editing
+UserFrontend: Main user interface with tabs
+SongList: Displays available songs for request
+RequestModal: Form for submitting a song request
+UpvoteList: Shows pending requests that can be upvoted
+Ticker: Banner showing next song or custom message
+
+Admin Components
+
+BackendLogin: Admin authentication screen
+SongLibrary: Interface for managing songs
+SetListManager: Creation and management of set lists
+QueueView: Admin view of requests with actions
+TickerManager: Control interface for the ticker display
+LogoManager: Upload and manage the band logo
+ColorCustomizer: Customize the app's color scheme
+
+Advanced Features (Optional)
+
+Analytics Dashboard
+
+Track most requested songs
+View audience engagement metrics
+Analyze set list performance
+
+
+Band Member Coordination
+
+Multiple admin accounts with different permissions
+Internal notes on songs and requests
+Notification system for band members
+
+
+Audience Engagement Enhancements
+
+Song dedication features
+Special request categories
+Integration with social media for sharing
+
+
+QR Code Generation
+
+Generate custom QR codes for venue display
+Direct audience to the app easily
+
+
+
+Potential Challenges and Solutions
+
+Challenge: Handling real-time updates efficiently
+Solution: Use Supabase's real-time subscription features with optimized React renders
+Challenge: Managing request duplicates
+Solution: Implement smart deduplication based on song title/artist with merged requesters
+Challenge: Mobile performance
+Solution: Use virtualized lists, lazy loading, and code splitting
+Challenge: Image optimization for user photos
+Solution: Client-side compression before upload and proper caching strategies
+
+Success Criteria
+
+Users can create profiles, request songs, and upvote other requests
+Admins can manage songs, set lists, and the request queue
+Real-time updates work correctly and efficiently
+UI is responsive and works well on mobile devices
+Customization options function properly
+Performance is optimized for various devices and network conditions
+
+This comprehensive guide should provide all the necessary information to build a fully-functional Band Request Hub application with both user-facing and administrative features.
