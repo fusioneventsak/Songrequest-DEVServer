@@ -7,7 +7,6 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { useUiSettings } from './hooks/useUiSettings';
 import { useSongSync } from './hooks/useSongSync';
-import { useRequestSync } from './hooks/useRequestSync';
 import { useSetListSync } from './hooks/useSetListSync';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
@@ -85,10 +84,74 @@ function App() {
   // UI Settings
   const { settings, updateSettings } = useUiSettings();
   
-  // Initialize data synchronization
+  // Initialize data synchronization with enhanced real-time
   const { isLoading: isFetchingSongs } = useSongSync(setSongs);
-  const { isLoading: isFetchingRequests, reconnect: reconnectRequests } = useRequestSync(setRequests);
   const { isLoading: isFetchingSetLists, refetch: refreshSetLists } = useSetListSync(setSetLists);
+
+  // 🚀 ENHANCED: Replace useRequestSync with direct real-time implementation
+  const [isFetchingRequests, setIsFetchingRequests] = useState(true);
+  const reconnectRequests = useCallback(async () => {
+    console.log('🔄 Manual reconnect triggered - fetching latest requests...');
+    
+    try {
+      const { data: requestsData, error: requestsError } = await supabase
+        .from('requests')
+        .select(`
+          id,
+          title,
+          artist,
+          votes,
+          status,
+          is_locked,
+          is_played,
+          created_at,
+          requesters (
+            id,
+            name,
+            photo,
+            message,
+            created_at
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (requestsError) {
+        console.error('❌ Error fetching requests:', requestsError);
+        return;
+      }
+
+      if (requestsData) {
+        const formattedRequests: SongRequest[] = requestsData.map(request => ({
+          id: request.id,
+          title: request.title,
+          artist: request.artist || '',
+          requesters: (request.requesters || []).map((requester: any) => ({
+            id: requester.id,
+            name: requester.name,
+            photo: requester.photo || '',
+            message: requester.message || '',
+            timestamp: new Date(requester.created_at)
+          })),
+          votes: request.votes || 0,
+          status: request.status as any,
+          isLocked: request.is_locked || false,
+          isPlayed: request.is_played || false,
+          createdAt: new Date(request.created_at)
+        }));
+
+        console.log('✅ Manual fetch completed:', formattedRequests.length, 'requests');
+        console.log('📊 Request status breakdown:', {
+          total: formattedRequests.length,
+          active: formattedRequests.filter(r => !r.isPlayed).length,
+          played: formattedRequests.filter(r => r.isPlayed).length,
+          locked: formattedRequests.filter(r => r.isLocked).length
+        });
+        setRequests(formattedRequests);
+      }
+    } catch (error) {
+      console.error('❌ Manual fetch error:', error);
+    }
+  }, []);
 
   // 🚀 CRITICAL FIX: Use the same mergedRequests pattern as KioskPage
   const mergedRequests = useMemo(() => {
@@ -108,22 +171,55 @@ function App() {
       artist: req.artist || '',
       requesters: Array.isArray(req.requesters) ? req.requesters : [],
       isLocked: Boolean(req.isLocked),
-      isPlayed: Boolean(req.isPlayed),
+      isPlayed: Boolean(req.isPlayed), // This is critical - ensure it's properly set
       status: req.status || 'pending',
       createdAt: req.createdAt ? new Date(req.createdAt) : new Date()
     }));
 
-    // Add any optimistic new requests (same as KioskPage)
-    const optimisticRequestsList = Array.from(optimisticRequests.values())
-      .filter(req => req.id?.startsWith('temp_'));
+    // Clean up optimistic requests that now exist in real data
+    const realTitles = new Set(realRequests.map(r => r.title.toLowerCase()));
+    const validOptimisticRequests = Array.from(optimisticRequests.values())
+      .filter(req => {
+        if (!req.id?.startsWith('temp_')) return false;
+        
+        // Remove optimistic request if real version exists
+        const hasRealVersion = realTitles.has(req.title?.toLowerCase() || '');
+        if (hasRealVersion) {
+          console.log(`🧹 Removing optimistic request "${req.title}" - real version exists`);
+          // Clean up the optimistic state
+          setTimeout(() => {
+            setOptimisticRequests(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(req.id!);
+              return newMap;
+            });
+          }, 100);
+          return false;
+        }
+        
+        return true;
+      })
+      .map(req => ({
+        // Ensure optimistic requests have proper structure
+        ...req,
+        isPlayed: false, // Critical: optimistic requests are never played
+        votes: req.votes ?? 0,
+        requesters: req.requesters || [],
+        status: 'pending',
+        createdAt: req.createdAt || new Date()
+      })) as SongRequest[];
 
     // Combine and filter out played requests (same as KioskPage)
-    const merged = [...realRequests, ...optimisticRequestsList].filter(req => !req.isPlayed);
+    const merged = [...realRequests, ...validOptimisticRequests].filter(req => {
+      const shouldInclude = !req.isPlayed;
+      console.log(`Request "${req.title}": isPlayed=${req.isPlayed}, included=${shouldInclude}`);
+      return shouldInclude;
+    });
 
     console.log('✅ Merged requests created:', {
       total: merged.length,
       fromReal: realRequests.filter(r => !r.isPlayed).length,
-      fromOptimistic: optimisticRequestsList.length,
+      fromOptimistic: validOptimisticRequests.length,
       titles: merged.map(r => r.title)
     });
 
@@ -134,15 +230,21 @@ function App() {
   useEffect(() => {
     console.log('🔄 App: requests state changed:', {
       length: requests.length,
+      optimisticLength: optimisticRequests.size,
       requests: requests.map(r => ({
         id: r.id,
         title: r.title,
         isPlayed: r.isPlayed,
         isLocked: r.isLocked,
         votes: r.votes
+      })),
+      optimistic: Array.from(optimisticRequests.entries()).map(([id, req]) => ({
+        id,
+        title: req.title,
+        isPlayed: req.isPlayed
       }))
     });
-  }, [requests]);
+  }, [requests, optimisticRequests]);
 
   // Add debugging for when mergedRequests change
   useEffect(() => {
@@ -158,6 +260,221 @@ function App() {
     });
   }, [mergedRequests]);
 
+  // Enhanced real-time subscription setup
+  useEffect(() => {
+    console.log('🚀 Setting up enhanced real-time subscriptions...');
+    
+    // Initial fetch
+    reconnectRequests();
+    setIsFetchingRequests(false);
+    
+    // Real-time subscription with aggressive update strategy
+    const requestsChannel = supabase
+      .channel('enhanced_requests_channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'requests'
+        },
+        (payload) => {
+          console.log('🚨 REAL-TIME: Request change detected', {
+            event: payload.eventType,
+            title: payload.new?.title || payload.old?.title,
+            id: payload.new?.id || payload.old?.id,
+            isPlayed: payload.new?.is_played,
+            wasPlayed: payload.old?.is_played
+          });
+          
+          // IMMEDIATE update for critical changes like marking as played
+          if (payload.eventType === 'UPDATE' && 
+              payload.old?.is_played !== payload.new?.is_played) {
+            console.log('🚨 CRITICAL: Song marked as played status changed!');
+            setTimeout(reconnectRequests, 25); // Ultra fast for played status
+          } else {
+            setTimeout(reconnectRequests, 50); // Fast for other changes
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'requesters'
+        },
+        (payload) => {
+          console.log('🚨 REAL-TIME: Requester change detected', {
+            event: payload.eventType,
+            name: payload.new?.name || payload.old?.name,
+            requestId: payload.new?.request_id || payload.old?.request_id
+          });
+          
+          // IMMEDIATE update - no debouncing
+          setTimeout(reconnectRequests, 50);
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Enhanced subscription status:', status);
+        
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Enhanced real-time is ACTIVE');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Enhanced real-time ERROR - will retry');
+          // Retry after 2 seconds
+          setTimeout(() => {
+            console.log('🔄 Retrying real-time subscription...');
+            requestsChannel.unsubscribe();
+            // The useEffect will re-run and recreate the subscription
+          }, 2000);
+        }
+      });
+
+    return () => {
+      console.log('🧹 Cleaning up enhanced real-time subscription');
+      requestsChannel.unsubscribe();
+    };
+  }, [reconnectRequests]);
+
+  // DEBUG: Real-time subscription test
+  useEffect(() => {
+    console.log('🔧 Setting up debug real-time subscription...');
+    
+    const debugChannel = supabase
+      .channel('debug_requests_channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'requests'
+        },
+        (payload) => {
+          console.log('🚨 DEBUG: Real-time request change detected!', {
+            event: payload.eventType,
+            table: payload.table,
+            hasNew: !!payload.new,
+            hasOld: !!payload.old,
+            newData: payload.new,
+            oldData: payload.old
+          });
+          
+          if (payload.eventType === 'INSERT') {
+            console.log('📥 New request inserted:', payload.new?.title);
+          }
+          if (payload.eventType === 'UPDATE') {
+            console.log('📝 Request updated:', payload.new?.title);
+            if (payload.old?.is_played !== payload.new?.is_played) {
+              console.log('🎯 PLAYED STATUS CHANGED:', {
+                from: payload.old?.is_played,
+                to: payload.new?.is_played,
+                title: payload.new?.title
+              });
+            }
+          }
+          if (payload.eventType === 'DELETE') {
+            console.log('🗑️ Request deleted');
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 DEBUG channel subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ DEBUG real-time subscription is active');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ DEBUG real-time subscription error');
+        } else if (status === 'TIMED_OUT') {
+          console.warn('⚠️ DEBUG real-time subscription timed out');
+        } else if (status === 'CLOSED') {
+          console.warn('🔌 DEBUG real-time subscription closed');
+        }
+      });
+
+    return () => {
+      console.log('🧹 Cleaning up debug real-time subscription');
+      debugChannel.unsubscribe();
+    };
+  }, []);
+
+  // Environment analysis
+  useEffect(() => {
+    console.log('🌍 Environment Analysis:', {
+      isDev: window.location.hostname === 'localhost',
+      isStackBlitz: window.location.hostname.includes('stackblitz'),
+      hostname: window.location.hostname,
+      port: window.location.port,
+      protocol: window.location.protocol,
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+      userAgent: navigator.userAgent.substring(0, 50)
+    });
+    
+    // Test if this is a different Supabase instance
+    const prodPattern = /\.supabase\.co$/;
+    const devPattern = /localhost|stackblitz|gitpod/;
+    
+    const url = import.meta.env.VITE_SUPABASE_URL || '';
+    console.log('🔍 Supabase URL Analysis:', {
+      url: url,
+      isProdUrl: prodPattern.test(url),
+      isDevEnvironment: devPattern.test(window.location.hostname),
+      urlHost: new URL(url).hostname
+    });
+  }, []);
+
+  // Fallback polling for dev environment (as backup)
+  useEffect(() => {
+    const isDev = window.location.hostname === 'localhost' || 
+                 window.location.hostname.includes('stackblitz');
+    
+    if (!isDev) return; // Only run in development
+    
+    console.log('🔧 Setting up development fallback polling...');
+    
+    let lastKnownCount = requests.length;
+    
+    const pollForChanges = setInterval(async () => {
+      try {
+        const { count, error } = await supabase
+          .from('requests')
+          .select('*', { count: 'exact', head: true });
+          
+        if (!error && count !== null && count !== lastKnownCount) {
+          console.log(`📊 DEV POLLING: Count changed ${lastKnownCount} → ${count}`);
+          lastKnownCount = count;
+          reconnectRequests();
+        }
+      } catch (error) {
+        console.warn('⚠️ Polling error (non-critical):', error);
+      }
+    }, 1500); // Check every 1.5 seconds in dev
+    
+    return () => {
+      console.log('🧹 Cleaning up dev polling');
+      clearInterval(pollForChanges);
+    };
+  }, [requests.length, reconnectRequests]);
+
+  // Test the Supabase real-time connection status
+  useEffect(() => {
+    const checkRealtimeStatus = () => {
+      console.log('📡 Real-time connection status:', {
+        isConnected: supabase.realtime.isConnected(),
+        channels: supabase.realtime.channels.length,
+        connectionState: supabase.realtime.connectionState(),
+        reconnectAttempts: supabase.realtime.reconnectAttempts || 0
+      });
+    };
+    
+    // Check immediately
+    checkRealtimeStatus();
+    
+    // Check every 5 seconds
+    const statusInterval = setInterval(checkRealtimeStatus, 5000);
+    
+    return () => clearInterval(statusInterval);
+  }, []);
+
   // SUPABASE CONNECTION TEST
   useEffect(() => {
     const testSupabaseConnection = async () => {
@@ -166,22 +483,46 @@ function App() {
       console.log('Has Anon Key:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
       
       try {
+        // Test basic connection
         const { data, error } = await supabase
           .from('requests')
-          .select('id, title, is_played, is_locked')
-          .limit(5);
+          .select('count(*)', { count: 'exact', head: true });
         
         if (error) {
           console.error('❌ Supabase connection failed:', error);
+          console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint
+          });
         } else {
           console.log('✅ Supabase connection successful!');
-          console.log('📊 Sample requests from DB:', data);
+          console.log('Request count:', data);
+          
+          // Test fetching actual requests
+          try {
+            const { data: requestsData, error: requestsError } = await supabase
+              .from('requests')
+              .select('id, title, is_played')
+              .limit(5);
+              
+            if (requestsError) {
+              console.error('❌ Error fetching requests:', requestsError);
+            } else {
+              console.log('✅ Sample requests fetched:', requestsData?.length || 0);
+              console.log('Sample data:', requestsData);
+            }
+          } catch (fetchError) {
+            console.error('❌ Error in request fetch:', fetchError);
+          }
         }
       } catch (connectionError) {
         console.error('❌ Connection test failed:', connectionError);
       }
     };
     
+    // Run the test after a short delay
     setTimeout(testSupabaseConnection, 1000);
   }, []);
 
@@ -406,7 +747,7 @@ function App() {
       artist: data.artist || '',
       votes: 0,
       isLocked: false,
-      isPlayed: false,
+      isPlayed: false, // CRITICAL: ensure this is explicitly false
       status: 'pending',
       createdAt: new Date(),
       requesters: [{
@@ -490,17 +831,9 @@ function App() {
         if (requesterError) throw requesterError;
       }
 
-      // Remove optimistic request after real data arrives (same as KioskPage)
-      setTimeout(() => {
-        if (mountedRef.current) {
-          console.log('🧹 Removing optimistic request - real data should be arriving');
-          setOptimisticRequests(prev => {
-            const newMap = new Map(prev);
-            newMap.delete(tempId);
-            return newMap;
-          });
-        }
-      }, 2000);
+      // DON'T remove optimistic request automatically - let real-time data replace it
+      // The real-time subscription will handle updating the UI when the actual request arrives
+      console.log('✅ Request submitted successfully - letting real-time data handle UI updates');
 
       requestRetriesRef.current = 0;
       console.log('✅ Request submitted successfully:', requestId);
@@ -682,7 +1015,7 @@ function App() {
     }
   }, [mergedRequests, isOnline]);
 
-  // Handle marking a request as played
+  // 🚀 CRITICAL FIX: Enhanced mark as played with immediate persistence
   const handleMarkPlayed = useCallback(async (id: string) => {
     console.log('✅ Marking request as played:', id);
     
@@ -692,23 +1025,49 @@ function App() {
     }
     
     try {
-      const { error } = await supabase
+      console.log('🎯 Updating request in database...');
+      
+      // Use a more explicit update to ensure it persists
+      const { data, error } = await supabase
         .from('requests')
         .update({ 
           is_played: true,
           is_locked: false,
-          status: 'played'
+          status: 'played',
+          updated_at: new Date().toISOString() // Add timestamp to ensure update is registered
         })
-        .eq('id', id);
+        .eq('id', id)
+        .select(); // Return the updated record to verify
 
-      if (error) throw error;
-      console.log('✅ Request marked as played successfully');
-      toast.success('Request marked as played!');
+      if (error) {
+        console.error('❌ Database update failed:', error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        console.log('✅ Request marked as played in database:', data[0]);
+        console.log('Database confirms is_played =', data[0].is_played);
+        
+        // Force immediate refresh to ensure UI reflects the change
+        setTimeout(() => {
+          console.log('🔄 Forcing immediate refresh after marking played...');
+          reconnectRequests();
+        }, 100);
+        
+        toast.success('Request marked as played!');
+      } else {
+        console.warn('⚠️ Update succeeded but no data returned');
+        throw new Error('No data returned from update');
+      }
+
     } catch (error) {
       console.error('❌ Error marking request as played:', error);
       toast.error('Failed to update request. Please try again.');
+      
+      // Force a refresh to get the current state
+      reconnectRequests();
     }
-  }, [isOnline]);
+  }, [isOnline, reconnectRequests]);
 
   // Handle resetting the request queue
   const handleResetQueue = useCallback(async () => {
