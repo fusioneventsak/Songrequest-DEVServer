@@ -7,7 +7,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
 interface CachedData {
-  data: SongRequest[] | null;
+  data: SongRequest[];
   timestamp: number;
 }
 
@@ -36,7 +36,7 @@ export function useRequestSync({
   // Optimized fetch with caching and deduplication
   const fetchRequests = useCallback(async (bypassCache = false) => {
     // Prevent concurrent fetches
-    if (fetchInProgressRef.current) {
+    if (fetchInProgressRef.current) { 
       return;
     }
     
@@ -46,7 +46,7 @@ export function useRequestSync({
       if (data) {
         const age = Date.now() - timestamp;
         
-        if (age < CACHE_DURATION && data.length > 0) {
+        if (age < CACHE_DURATION && data.length > 0) { 
           if (mountedRef.current) {
             setRequests(data);
             setIsLoading(false);
@@ -54,7 +54,7 @@ export function useRequestSync({
           return;
         }
       }
-    }
+    } 
     
     fetchInProgressRef.current = true;
     
@@ -62,7 +62,7 @@ export function useRequestSync({
       if (!mountedRef.current) return;
       
       setIsLoading(true);
-      setError(null);
+      setError(null); 
 
       // FIXED: Use direct query instead of missing function
       console.log('🔄 Fetching requests with requesters...');
@@ -79,7 +79,7 @@ export function useRequestSync({
           )
         `)
         .order('created_at', { ascending: false });
-
+      
       console.log('🔍 DEBUG - Raw Supabase Response:');
       console.log('- Error:', requestsError);
       console.log('- Data length:', requestsData?.length || 0);
@@ -87,7 +87,7 @@ export function useRequestSync({
         console.log('- First request raw:', requestsData[0]);
       }
 
-      if (requestsError) throw requestsError;
+      if (requestsError) throw requestsError; 
 
       if (!requestsData) {
         console.log('❌ No requests found - requestsData is null/undefined');
@@ -95,7 +95,7 @@ export function useRequestSync({
         if (mountedRef.current) {
           setRequests(emptyResult);
           cacheRef.current = { data: emptyResult, timestamp: Date.now() };
-        }
+        } 
         return;
       }
 
@@ -103,7 +103,7 @@ export function useRequestSync({
       console.log('🔄 Starting to format requests...');
       const transformedRequests: SongRequest[] = requestsData.map(request => {
         console.log(`📝 Formatting request: ${request.title}`);
-        console.log(`   - ID: ${request.id || 'undefined'}`);
+        console.log(`   - ID: ${request.id}`);
         console.log(`   - is_played: ${request.is_played}`);
         console.log(`   - votes: ${request.votes}`);
         console.log(`   - requesters count: ${request.requesters?.length || 0}`);
@@ -111,7 +111,7 @@ export function useRequestSync({
         return {
           id: request.id,
           title: request.title,
-          artist: request.artist || '',
+          artist: request.artist || '', 
           requesters: (request.requesters || []).map((requester: any) => ({
             id: requester.id,
             name: requester.name || 'Anonymous',
@@ -119,7 +119,7 @@ export function useRequestSync({
             message: requester.message || '',
             timestamp: new Date(requester.created_at)
           })),
-          votes: request.votes || 0,
+          votes: request.votes || 0, 
           status: request.status as any,
           isLocked: request.is_locked || false,
           isPlayed: request.is_played || false,
@@ -127,7 +127,7 @@ export function useRequestSync({
         };
       });
 
-      console.log('✅ Formatted requests:', transformedRequests.length);
+      console.log('✅ Formatted requests:', transformedRequests.length); 
       console.log('📊 Formatted data preview:', transformedRequests.map(r => ({
         id: r.id,
         title: r.title || 'Untitled',
@@ -135,7 +135,7 @@ export function useRequestSync({
         requesters: r.requesters.length
       })));
 
-      if (mountedRef.current) {
+      if (mountedRef.current) { 
         console.log('🚀 About to call onUpdate with:', transformedRequests.length, 'requests');
         setRequests(transformedRequests);
         cacheRef.current = { data: transformedRequests, timestamp: Date.now() };
@@ -143,7 +143,7 @@ export function useRequestSync({
         setRetryCount(0);
       }
     } catch (error) {
-      console.error('❌ Error fetching requests:', error);
+      console.error('❌ Error fetching requests:', error); 
         // Try to use cached data if available
         const cachedRequests = cacheRef.current?.data;
         if (cachedRequests) {
@@ -151,7 +151,7 @@ export function useRequestSync({
           setRequests(cachedRequests);
         }
         setError(error instanceof Error ? error : new Error(String(error)));
-        
+         
         // Retry logic with exponential backoff
         if (retryCount < MAX_RETRY_ATTEMPTS) {
           const delay = RETRY_DELAY * Math.pow(2, retryCount);
@@ -159,7 +159,7 @@ export function useRequestSync({
             setRetryCount(prev => prev + 1);
             fetchRequests(true);
           }, delay);
-        }
+        } 
     } finally {
       if (mountedRef.current) {
         setIsLoading(false);
@@ -167,7 +167,7 @@ export function useRequestSync({
       fetchInProgressRef.current = false;
     }
   }, [setRequests]);
-
+  
   // Setup real-time subscription with debouncing
   useEffect(() => {
     let debounceTimer: NodeJS.Timeout | null = null;
@@ -175,7 +175,7 @@ export function useRequestSync({
     const setupSubscription = () => {
       // Clean up existing subscription
       if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current.unsubscribe(); 
       }
 
       // Subscribe to requests changes
@@ -189,7 +189,7 @@ export function useRequestSync({
             table: 'requests'
           },
           (payload) => {
-            console.log('📡 Request change detected:', payload.eventType, payload.new?.id || payload.old?.id);
+            console.log('📡 Request change detected:', payload.eventType);
             
             // Debounce rapid changes
             if (debounceTimer) {
@@ -197,7 +197,7 @@ export function useRequestSync({
             }
             
             debounceTimer = setTimeout(() => {
-              const timeSinceLastUpdate = Date.now() - lastUpdateRef.current;
+              const timeSinceLastUpdate = Date.now() - lastUpdateRef.current; 
               
               // Only refetch if enough time has passed or it's a critical change
               if (timeSinceLastUpdate > 2000 || payload.eventType === 'DELETE') {
@@ -205,7 +205,7 @@ export function useRequestSync({
               }
             }, 500);
           }
-        )
+        ) 
         .on(
           'postgres_changes',
           {
@@ -213,7 +213,7 @@ export function useRequestSync({
             schema: 'public',
             table: 'requesters'
           },
-          (payload) => {
+          (payload) => { 
             console.log('📡 Requester change detected:', payload.eventType);
             
             if (debounceTimer) {
@@ -224,7 +224,7 @@ export function useRequestSync({
               fetchRequests(true);
             }, 300);
           }
-        )
+        ) 
         .on(
           'postgres_changes',
           {
@@ -232,7 +232,7 @@ export function useRequestSync({
             schema: 'public',
             table: 'user_votes'
           },
-          (payload) => {
+          (payload) => { 
             console.log('📡 Vote change detected:', payload.eventType);
             
             if (debounceTimer) {
@@ -243,7 +243,7 @@ export function useRequestSync({
               fetchRequests(true);
             }, 200);
           }
-        )
+        ) 
         .subscribe();
       subscriptionRef.current = subscription;
       subscription.on('status', (status) => {
@@ -254,7 +254,7 @@ export function useRequestSync({
         });
     };
 
-    if (isOnline) setupSubscription();
+    if (isOnline) setupSubscription(); 
 
     return () => {
       if (debounceTimer) {
@@ -265,7 +265,7 @@ export function useRequestSync({
       }
     };
   }, [fetchRequests, isOnline]);
-
+  
   // Function to manually reconnect and refresh data
   const reconnectRequests = useCallback(() => {
     console.log('🔄 Manually reconnecting requests subscription');
@@ -273,7 +273,7 @@ export function useRequestSync({
     // Clean up existing subscription
     if (subscriptionRef.current) {
       try { 
-        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current.unsubscribe(); 
       } catch (e) {
         console.warn('Error unsubscribing:', e);
       }
@@ -281,7 +281,7 @@ export function useRequestSync({
     
     // Set up new subscription
     if (isOnline) setupSubscription();
-    
+     
     // Force a fresh fetch
     fetchRequests(true);
   }, [fetchRequests]);
@@ -289,7 +289,7 @@ export function useRequestSync({
   // Initial fetch
   useEffect(() => {
     fetchRequests();
-  }, [fetchRequests, isOnline]);
+  }, [fetchRequests]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -297,7 +297,7 @@ export function useRequestSync({
       mountedRef.current = false;
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe();
-      }
+      } 
     };
   }, []);
 
@@ -305,7 +305,7 @@ export function useRequestSync({
   const refresh = useCallback(() => {
     cacheRef.current = null;
     fetchRequests(true);
-  }, [fetchRequests]);
+  }, [fetchRequests]); 
 
   return {
     isLoading, 

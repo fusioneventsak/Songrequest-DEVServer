@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, Image } from 'lucide-react';
 import { LogoUploader } from './LogoUploader';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 interface LogoManagerProps {
   isAdmin?: boolean;
@@ -10,6 +11,7 @@ interface LogoManagerProps {
 
 export function LogoManager({ isAdmin = false, currentLogoUrl = null, onLogoUpdate = () => {} }: LogoManagerProps) {
   const [showUploader, setShowUploader] = useState(false);
+  const { settings } = useUiSettings();
 
   const handleLogoClick = () => {
     if (isAdmin) {
@@ -22,9 +24,9 @@ export function LogoManager({ isAdmin = false, currentLogoUrl = null, onLogoUpda
   }
 
   return (
-    <div>
+    <div className="glass-effect rounded-lg p-4 mb-4">
       {!showUploader ? (
-        <div className="glass-effect rounded-lg p-4 mb-4">
+        <div>
           <h3 className="text-sm font-medium text-white mb-2 flex items-center">
             <Image className="w-4 h-4 mr-1" />
             Logo Management
@@ -41,7 +43,7 @@ export function LogoManager({ isAdmin = false, currentLogoUrl = null, onLogoUpda
           </button>
         </div>
       ) : (
-        <div className="glass-effect rounded-lg p-4 mb-4">
+        <div>
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-medium text-white flex items-center">
               <Upload className="w-4 h-4 mr-1" />
@@ -55,7 +57,7 @@ export function LogoManager({ isAdmin = false, currentLogoUrl = null, onLogoUpda
             </button>
           </div>
           <LogoUploader 
-            currentLogoUrl={currentLogoUrl}
+            currentLogoUrl={currentLogoUrl || settings?.band_logo_url}
             onSuccess={(url) => {
               onLogoUpdate(url);
               setShowUploader(false);

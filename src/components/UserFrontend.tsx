@@ -24,7 +24,7 @@ interface UserFrontendProps {
   onUpdateUser: (user: User) => void;
   logoUrl: string;
   isAdmin: boolean;
-  onLogoClick: () => void;
+  onLogoClick?: () => void;
   onBackendAccess: () => void;
 }
 
@@ -38,7 +38,7 @@ export function UserFrontend({
   onUpdateUser,
   logoUrl,
   isAdmin,
-  onLogoClick,
+  onLogoClick = () => {},
   onBackendAccess
 }: UserFrontendProps) {
   const [searchTerm, setSearchTerm] = useState('');

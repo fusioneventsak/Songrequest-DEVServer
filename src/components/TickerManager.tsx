@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Type, Music } from 'lucide-react';
 import { useUiSettings } from '../hooks/useUiSettings';
 
+// Define the TickerManagerProps interface
 interface TickerManagerProps {
   isAdmin?: boolean;
   nextSong?: { 
@@ -14,6 +15,7 @@ interface TickerManagerProps {
   onToggleActive?: () => void;
 }
 
+// Implement the TickerManager component with default props
 export function TickerManager({ 
   isAdmin = false,
   nextSong, 
@@ -26,7 +28,7 @@ export function TickerManager({
   const [isUpdating, setIsUpdating] = useState(false);
   const [localMessage, setLocalMessage] = useState(customMessage);
   const timeoutRef = useRef<NodeJS.Timeout>();
-  const { updateSettings } = useUiSettings();
+  const { settings, updateSettings } = useUiSettings();
 
   // If not admin, don't render anything
   if (!isAdmin) return null;
@@ -45,13 +47,13 @@ export function TickerManager({
   const handleToggleActive = async () => {
     try {
       setIsUpdating(true);
-      
+
       if (isActive) {
         // STOPPING: Clear everything
         setLocalMessage('');
         onUpdateMessage('');
         onToggleActive();
-        
+
         // Clear in database
         await updateSettings({
           custom_message: '',
@@ -63,7 +65,7 @@ export function TickerManager({
         if (localMessage.trim()) {
           // Update parent state with the current message
           onUpdateMessage(localMessage);
-          onToggleActive();
+          onToggleActive(); 
           
           // Send to database
           await updateSettings({

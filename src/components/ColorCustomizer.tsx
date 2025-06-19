@@ -18,7 +18,7 @@ interface ColorState {
 
 export function ColorCustomizer({ isAdmin }: ColorCustomizerProps) {
   const { settings, updateSettings } = useUiSettings();
-  const [colors, setColors] = useState<ColorState>({
+  const [colors, setColors] = useState<ColorState>({ 
     headerBg: '#13091f',
     contentBg: '#0f051d', 
     accentColor: '#ff00ff',
@@ -30,6 +30,9 @@ export function ColorCustomizer({ isAdmin }: ColorCustomizerProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+
+  // If not admin, don't render anything
+  if (!isAdmin) return null;
 
   // Initialize colors from settings
   useEffect(() => {
@@ -148,8 +151,6 @@ export function ColorCustomizer({ isAdmin }: ColorCustomizerProps) {
       }
     });
   };
-
-  if (!isAdmin) return null;
 
   return (
     <div className="glass-effect rounded-lg p-4 mb-4">

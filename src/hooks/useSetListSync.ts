@@ -24,8 +24,8 @@ export function useSetListSync({
   const [retryCount, setRetryCount] = useState(0);
   const mountedRef = useRef(true);
   const setListsSubscriptionRef = useRef<string | null>(null);
-  const setListSongsSubscriptionRef = useRef<string | null>(null);
-  const setListActivationSubscriptionRef = useRef<string | null>(null);
+  const setListSongsSubscriptionRef = useRef<string | null>(null); 
+  const setListActivationSubscriptionRef = useRef<string | null>(null); 
   const lastFetchTimeRef = useRef<number>(0);
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fetchInProgressRef = useRef(false);
@@ -197,6 +197,8 @@ export function useSetListSync({
     
     // Setup subscriptions
     const setupSubscriptions = () => {
+      if (!isOnline) return;
+      
       try {
         // Subscribe to set_lists table
         const setListsSub = RealtimeManager.createSubscription(
@@ -236,7 +238,7 @@ export function useSetListSync({
         setListsSubscriptionRef.current = setListsSub;
         setListSongsSubscriptionRef.current = setListSongsSub;
         setListActivationSubscriptionRef.current = setListActivationSub;
-      } catch (error) {
+      } catch (error) { 
         console.error('Error setting up realtime subscriptions:', error);
       }
     };
@@ -244,7 +246,7 @@ export function useSetListSync({
     // Initial fetch and subscription setup
     if (isOnline) {
       fetchSetLists();
-      setupSubscriptions();
+      setupSubscriptions(); 
     }
     
     // REMOVED: Periodic polling interval setup
@@ -253,7 +255,7 @@ export function useSetListSync({
     // where realtime might be less reliable
     const pollingInterval = setInterval(() => {
       console.log('Polling for set list updates...');
-      fetchSetLists(true);
+      if (isOnline) fetchSetLists(true);
     }, 10000); // Poll every 10 seconds
     
     // Cleanup on unmount
@@ -285,7 +287,7 @@ export function useSetListSync({
   // Function to manually reconnect
   const reconnectSetLists = useCallback(() => {
     console.log('🔄 Manually reconnecting set lists subscription');
-    
+
     // Clean up existing subscriptions
     if (setListsSubscriptionRef.current) {
       try {
@@ -310,7 +312,7 @@ export function useSetListSync({
         console.warn('Error removing subscription:', e);
       }
     }
-    
+
     // Set up new subscriptions
     if (isOnline) {
       setupSubscriptions();
@@ -318,7 +320,7 @@ export function useSetListSync({
       // Force a fresh fetch
       fetchSetLists(true);
     }
-  }, [fetchSetLists, isOnline]);
+  }, [fetchSetLists, isOnline, setupSubscriptions]);
 
   return { 
     isLoading, 

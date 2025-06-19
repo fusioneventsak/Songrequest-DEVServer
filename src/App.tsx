@@ -460,9 +460,9 @@ function App() {
     }
 
     try {
-      console.log(`🔒 Locking request: ${id}`);
+      console.log(`🔒 Locking request: ${requestId}`);
       
-      const { error } = await supabase.rpc('lock_request', { request_id: id });
+      const { error } = await supabase.rpc('lock_request', { request_id: requestId });
 
       if (error) throw error;
 
@@ -575,7 +575,7 @@ function App() {
     return requests.map(req => ({
       ...req,
       votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
-    }))];
+    }));
   }, [requests, optimisticVotes]);
 
   // Show loading screen
@@ -693,7 +693,6 @@ function App() {
   }
 
   // Show frontend interface
-
   return (
     <ErrorBoundary>
       <UserFrontend 
@@ -707,7 +706,6 @@ function App() {
         onBackendAccess={navigateToBackend}
         isAdmin={isAdmin}
         isOnline={isOnline}
-        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
         logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
       />
     </ErrorBoundary>
