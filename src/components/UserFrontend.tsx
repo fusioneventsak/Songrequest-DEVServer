@@ -64,6 +64,34 @@ export function UserFrontend({
     };
   }, []);
 
+  // Cleanup old optimistic requests to prevent permanent "processing" state
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      const now = Date.now();
+      setOptimisticRequests(prev => {
+        const newMap = new Map(prev);
+        let hasChanges = false;
+        
+        for (const [id, request] of newMap.entries()) {
+          if (id.startsWith('temp_')) {
+            // Extract timestamp from temp ID
+            const timestamp = parseInt(id.replace('temp_', ''));
+            // Remove if older than 10 seconds
+            if (now - timestamp > 10000) {
+              newMap.delete(id);
+              hasChanges = true;
+              console.log('🧹 Cleaned up old optimistic request:', request.title);
+            }
+          }
+        }
+        
+        return hasChanges ? newMap : prev;
+      });
+    }, 2000); // Check every 2 seconds
+
+    return () => clearInterval(cleanup);
+  }, []);
+
   // Get colors from settings
   const navBgColor = settings?.nav_bg_color || '#0f051d';
   const highlightColor = settings?.highlight_color || '#ff00ff';
@@ -149,7 +177,7 @@ export function UserFrontend({
       const success = await onSubmitRequest(requestData);
       
       if (success) {
-        // Remove optimistic request - real data will come from subscription
+        // SUCCESS: Remove optimistic request faster since real data should arrive soon
         setTimeout(() => {
           if (mountedRef.current) {
             setOptimisticRequests(prev => {
@@ -158,13 +186,13 @@ export function UserFrontend({
               return newMap;
             });
           }
-        }, 2000); // Give time for real data to arrive
+        }, 1000); // Reduced from 2000ms to 1000ms
         
         toast.success(`"${song.title}" has been added to the queue!`);
         setSelectedSong(null);
         setIsRequestModalOpen(false);
       } else {
-        // Remove failed optimistic request
+        // FAILURE: Remove failed optimistic request immediately
         setOptimisticRequests(prev => {
           const newMap = new Map(prev);
           newMap.delete(tempId);
@@ -174,7 +202,7 @@ export function UserFrontend({
     } catch (error) {
       console.error('Error requesting song:', error);
       
-      // Remove failed optimistic request
+      // ERROR: Remove failed optimistic request immediately
       setOptimisticRequests(prev => {
         const newMap = new Map(prev);
         newMap.delete(tempId);
