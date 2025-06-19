@@ -301,10 +301,9 @@ export function UserFrontend({
             </>
           ) : (
             <UpvoteList
-              requests={requests} // Using passed requests with optimistic updates
+              requests={requests} // Using passed requests (real-time data only)
               onVote={handleVote}
               currentUserId={currentUser.id || currentUser.name}
-              votingStates={votingStates}
             />
           )}
         </div>
