@@ -4,7 +4,7 @@ import { LogoUploader } from './LogoUploader';
 import { useUiSettings } from '../hooks/useUiSettings';
 
 export function SettingsManager() {
-  const { settings, loading, initialized, updateSettings } = useUiSettings();
+  const { settings, loading, initialized = true, updateSettings } = useUiSettings();
   const [bandName, setBandName] = useState(settings?.band_name || 'uRequest Live');
   const [primaryColor, setPrimaryColor] = useState(settings?.primary_color || '#ff00ff');
   const [secondaryColor, setSecondaryColor] = useState(settings?.secondary_color || '#9d00ff');

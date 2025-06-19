@@ -7,7 +7,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
 interface CachedData {
-  data: SongRequest[];
+  data: SongRequest[] | null;
   timestamp: number;
 }
 
@@ -28,7 +28,7 @@ export function useRequestSync({
   const [error, setError] = useState<Error | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const mountedRef = useRef(true);
-  const subscriptionRef = useRef<any>(null);
+  const subscriptionRef = useRef<any | null>(null);
   const fetchInProgressRef = useRef<boolean>(false);
   const cacheRef = useRef<CachedData | null>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -43,14 +43,16 @@ export function useRequestSync({
     // Check cache first
     if (!bypassCache && cacheRef.current) {
       const { data, timestamp } = cacheRef.current;
-      const age = Date.now() - timestamp;
-      
-      if (age < CACHE_DURATION && data.length > 0) {
-        if (mountedRef.current) {
-          setRequests(data);
-          setIsLoading(false);
+      if (data) {
+        const age = Date.now() - timestamp;
+        
+        if (age < CACHE_DURATION && data.length > 0) {
+          if (mountedRef.current) {
+            setRequests(data);
+            setIsLoading(false);
+          }
+          return;
         }
-        return;
       }
     }
     
@@ -81,7 +83,9 @@ export function useRequestSync({
       console.log('🔍 DEBUG - Raw Supabase Response:');
       console.log('- Error:', requestsError);
       console.log('- Data length:', requestsData?.length || 0);
-      console.log('- First request raw:', requestsData?.[0]);
+      if (requestsData && requestsData.length > 0) {
+        console.log('- First request raw:', requestsData[0]);
+      }
 
       if (requestsError) throw requestsError;
 
@@ -99,7 +103,7 @@ export function useRequestSync({
       console.log('🔄 Starting to format requests...');
       const transformedRequests: SongRequest[] = requestsData.map(request => {
         console.log(`📝 Formatting request: ${request.title}`);
-        console.log(`   - ID: ${request.id}`);
+        console.log(`   - ID: ${request.id || 'undefined'}`);
         console.log(`   - is_played: ${request.is_played}`);
         console.log(`   - votes: ${request.votes}`);
         console.log(`   - requesters count: ${request.requesters?.length || 0}`);
@@ -109,7 +113,8 @@ export function useRequestSync({
           title: request.title,
           artist: request.artist || '',
           requesters: (request.requesters || []).map((requester: any) => ({
-            name: requester.name,
+            id: requester.id,
+            name: requester.name || 'Anonymous',
             photo: requester.photo || '',
             message: requester.message || '',
             timestamp: new Date(requester.created_at)
@@ -125,7 +130,7 @@ export function useRequestSync({
       console.log('✅ Formatted requests:', transformedRequests.length);
       console.log('📊 Formatted data preview:', transformedRequests.map(r => ({
         id: r.id,
-        title: r.title,
+        title: r.title || 'Untitled',
         isPlayed: r.isPlayed,
         requesters: r.requesters.length
       })));
@@ -141,7 +146,7 @@ export function useRequestSync({
       console.error('❌ Error fetching requests:', error);
         // Try to use cached data if available
         const cachedRequests = cacheRef.current?.data;
-        if (cachedRequests && cachedRequests.length > 0) {
+        if (cachedRequests) {
           console.log('Using cached requests due to fetch error');
           setRequests(cachedRequests);
         }
@@ -166,7 +171,7 @@ export function useRequestSync({
   // Setup real-time subscription with debouncing
   useEffect(() => {
     let debounceTimer: NodeJS.Timeout | null = null;
-    
+
     const setupSubscription = () => {
       // Clean up existing subscription
       if (subscriptionRef.current) {
@@ -174,7 +179,7 @@ export function useRequestSync({
       }
 
       // Subscribe to requests changes
-      subscriptionRef.current = supabase
+      const subscription = supabase
         .channel('requests_channel')
         .on(
           'postgres_changes',
@@ -184,7 +189,7 @@ export function useRequestSync({
             table: 'requests'
           },
           (payload) => {
-            console.log('📡 Request change detected:', payload.eventType);
+            console.log('📡 Request change detected:', payload.eventType, payload.new?.id || payload.old?.id);
             
             // Debounce rapid changes
             if (debounceTimer) {
@@ -204,7 +209,7 @@ export function useRequestSync({
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: '*', 
             schema: 'public',
             table: 'requesters'
           },
@@ -212,7 +217,7 @@ export function useRequestSync({
             console.log('📡 Requester change detected:', payload.eventType);
             
             if (debounceTimer) {
-              clearTimeout(debounceTimer);
+              clearTimeout(debounceTimer); 
             }
             
             debounceTimer = setTimeout(() => {
@@ -223,7 +228,7 @@ export function useRequestSync({
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: '*', 
             schema: 'public',
             table: 'user_votes'
           },
@@ -231,7 +236,7 @@ export function useRequestSync({
             console.log('📡 Vote change detected:', payload.eventType);
             
             if (debounceTimer) {
-              clearTimeout(debounceTimer);
+              clearTimeout(debounceTimer); 
             }
             
             debounceTimer = setTimeout(() => {
@@ -239,7 +244,9 @@ export function useRequestSync({
             }, 200);
           }
         )
-        .subscribe((status) => {
+        .subscribe();
+      subscriptionRef.current = subscription;
+      subscription.on('status', (status) => {
           console.log('📡 Subscription status:', status);
           if (status === 'SUBSCRIBED') {
             console.log('✅ Real-time subscription active');
@@ -247,7 +254,7 @@ export function useRequestSync({
         });
     };
 
-    setupSubscription();
+    if (isOnline) setupSubscription();
 
     return () => {
       if (debounceTimer) {
@@ -257,7 +264,7 @@ export function useRequestSync({
         subscriptionRef.current.unsubscribe();
       }
     };
-  }, [fetchRequests]);
+  }, [fetchRequests, isOnline]);
 
   // Function to manually reconnect and refresh data
   const reconnectRequests = useCallback(() => {
@@ -265,7 +272,7 @@ export function useRequestSync({
     
     // Clean up existing subscription
     if (subscriptionRef.current) {
-      try {
+      try { 
         subscriptionRef.current.unsubscribe();
       } catch (e) {
         console.warn('Error unsubscribing:', e);
@@ -273,7 +280,7 @@ export function useRequestSync({
     }
     
     // Set up new subscription
-    setupSubscription();
+    if (isOnline) setupSubscription();
     
     // Force a fresh fetch
     fetchRequests(true);
@@ -282,7 +289,7 @@ export function useRequestSync({
   // Initial fetch
   useEffect(() => {
     fetchRequests();
-  }, [fetchRequests]);
+  }, [fetchRequests, isOnline]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -301,7 +308,7 @@ export function useRequestSync({
   }, [fetchRequests]);
 
   return {
-    isLoading,
+    isLoading, 
     error,
     refresh,
     reconnectRequests

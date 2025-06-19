@@ -3,12 +3,12 @@ import { Upload, Image } from 'lucide-react';
 import { LogoUploader } from './LogoUploader';
 
 interface LogoManagerProps {
-  isAdmin: boolean;
-  currentLogoUrl: string | null;
-  onLogoUpdate: (url: string) => void;
+  isAdmin?: boolean;
+  currentLogoUrl?: string | null;
+  onLogoUpdate?: (url: string) => void;
 }
 
-export function LogoManager({ isAdmin, currentLogoUrl, onLogoUpdate }: LogoManagerProps) {
+export function LogoManager({ isAdmin = false, currentLogoUrl = null, onLogoUpdate = () => {} }: LogoManagerProps) {
   const [showUploader, setShowUploader] = useState(false);
 
   const handleLogoClick = () => {

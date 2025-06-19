@@ -8,7 +8,17 @@ const SET_LISTS_CACHE_KEY = 'set_lists:all';
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000; // 1 second base delay
 
-export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
+interface UseSetListSyncProps {
+  setLists: SetList[];
+  setSetLists: (setLists: SetList[]) => void;
+  isOnline: boolean;
+}
+
+export function useSetListSync({
+  setLists,
+  setSetLists,
+  isOnline
+}: UseSetListSyncProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -60,8 +70,8 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
         const cachedSetLists = cacheService.get<SetList[]>(SET_LISTS_CACHE_KEY);
         if (cachedSetLists?.length > 0) {
           console.log('Using cached set lists');
-          if (mountedRef.current) {
-            onUpdate(cachedSetLists);
+          if (mountedRef.current && setSetLists) {
+            setSetLists(cachedSetLists);
             setIsLoading(false);
           }
           return;
@@ -137,7 +147,7 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
         }
         
         cacheService.setSetLists(SET_LISTS_CACHE_KEY, formattedSetLists);
-        onUpdate(formattedSetLists);
+        setSetLists(formattedSetLists);
         setRetryCount(0); // Reset retry count on success
       }
     } catch (error) {
@@ -150,7 +160,7 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
         const cachedSetLists = cacheService.get<SetList[]>(SET_LISTS_CACHE_KEY);
         if (cachedSetLists) {
           console.warn('Using stale cache due to fetch error');
-          onUpdate(cachedSetLists);
+          setSetLists(cachedSetLists);
         }
         
         // Retry with exponential backoff
@@ -176,7 +186,7 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
       }
       fetchInProgressRef.current = false;
     }
-  }, [onUpdate, retryCount]);
+  }, [setSetLists, retryCount]);
 
   // Setup realtime subscriptions
   useEffect(() => {
@@ -232,8 +242,10 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
     };
     
     // Initial fetch and subscription setup
-    fetchSetLists();
-    setupSubscriptions();
+    if (isOnline) {
+      fetchSetLists();
+      setupSubscriptions();
+    }
     
     // REMOVED: Periodic polling interval setup
     // No more setInterval for polling every 5 minutes
@@ -270,9 +282,48 @@ export function useSetListSync(onUpdate: (setLists: SetList[]) => void) {
     };
   }, [fetchSetLists]);
 
+  // Function to manually reconnect
+  const reconnectSetLists = useCallback(() => {
+    console.log('🔄 Manually reconnecting set lists subscription');
+    
+    // Clean up existing subscriptions
+    if (setListsSubscriptionRef.current) {
+      try {
+        RealtimeManager.removeSubscription(setListsSubscriptionRef.current);
+      } catch (e) {
+        console.warn('Error removing subscription:', e);
+      }
+    }
+    
+    if (setListSongsSubscriptionRef.current) {
+      try {
+        RealtimeManager.removeSubscription(setListSongsSubscriptionRef.current);
+      } catch (e) {
+        console.warn('Error removing subscription:', e);
+      }
+    }
+    
+    if (setListActivationSubscriptionRef.current) {
+      try {
+        RealtimeManager.removeSubscription(setListActivationSubscriptionRef.current);
+      } catch (e) {
+        console.warn('Error removing subscription:', e);
+      }
+    }
+    
+    // Set up new subscriptions
+    if (isOnline) {
+      setupSubscriptions();
+      
+      // Force a fresh fetch
+      fetchSetLists(true);
+    }
+  }, [fetchSetLists, isOnline]);
+
   return { 
     isLoading, 
     error, 
-    refetch: () => fetchSetLists(true) 
+    refetch: () => fetchSetLists(true),
+    reconnectSetLists
   };
 }

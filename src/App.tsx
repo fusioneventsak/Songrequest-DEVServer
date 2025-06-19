@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from './utils/supabase';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { supabase } from './utils/supabase'; 
 import type { Song, SongRequest, RequestFormData, SetList, User } from './types';
 import { LandingPage } from './components/LandingPage';
 import { UserFrontend } from './components/UserFrontend';
@@ -19,9 +20,15 @@ import { useSetListSync } from './hooks/useSetListSync';
 import { useUiSettings } from './hooks/useUiSettings';
 import { useLogoHandling } from './hooks/useLogoHandling';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
+import { LogOut } from 'lucide-react';
+import { Logo } from './components/shared/Logo';
+import { KioskPage } from './components/KioskPage';
 import toast from 'react-hot-toast';
 
 const DEFAULT_BAND_LOGO = "https://www.fusion-events.ca/wp-content/uploads/2025/03/ulr-wordmark.png";
+const BACKEND_PATH = "backend";
+const KIOSK_PATH = "kiosk";
+const MAX_PHOTO_SIZE = 250 * 1024; // 250KB limit for database storage
 const MAX_REQUEST_RETRIES = 3;
 
 function App() {
@@ -29,6 +36,7 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isBackend, setIsBackend] = useState(false);
+  const [isKiosk, setIsKiosk] = useState(false);
   
   // Backend tab state
   const [activeBackendTab, setActiveBackendTab] = useState<'requests' | 'setlists' | 'songs' | 'settings'>('requests');
@@ -50,6 +58,9 @@ function App() {
   
   const [setLists, setSetLists] = useState<SetList[]>([]);
   const [activeSetList, setActiveSetList] = useState<SetList | null>(null);
+  
+  // Voting states
+  const [votingStates, setVotingStates] = useState<Set<string>>(new Set());
   
   // User state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -122,6 +133,36 @@ function App() {
     };
   }, [reconnectRequests, reconnectSongs, reconnectSetLists]);
 
+  // Handle browser navigation
+  useEffect(() => {
+    const checkPath = () => {
+      const path = window.location.pathname;
+      
+      if (path.includes(BACKEND_PATH)) {
+        setIsBackend(true);
+        setIsKiosk(false);
+      } else if (path.includes(KIOSK_PATH)) {
+        setIsKiosk(true);
+        setIsBackend(false);
+      } else {
+        setIsBackend(false);
+        setIsKiosk(false);
+      }
+    };
+
+    checkPath();
+
+    const checkPathSpecialCases = () => {
+      checkPath();
+    };
+
+    window.addEventListener('popstate', checkPathSpecialCases);
+
+    return () => {
+      window.removeEventListener('popstate', checkPathSpecialCases);
+    };
+  }, []);
+
   // Check auth state
   useEffect(() => {
     const checkAuth = async () => {
@@ -148,18 +189,36 @@ function App() {
 
   // Update active set list when set lists change
   useEffect(() => {
-    const active = setLists.find(sl => sl.isActive);
+    const active = setLists?.find(sl => sl?.isActive);
+    
+    if (active) {
+      console.log(`Active set list updated in App: ${active.name} (${active.id})`);
+    } else if (setLists?.length > 0) {
+      console.log('No active set list found among', setLists.length, 'set lists');
+    }
+    
     setActiveSetList(active || null);
   }, [setLists]);
 
   // Handle navigation to backend
   const navigateToBackend = useCallback(() => {
+    window.history.pushState({}, '', `/${BACKEND_PATH}`);
     setIsBackend(true);
+    setIsKiosk(false);
   }, []);
   
   // Handle navigation to frontend
   const navigateToFrontend = useCallback(() => {
+    window.history.pushState({}, '', '/');
     setIsBackend(false);
+    setIsKiosk(false);
+  }, []);
+
+  // Handle navigation to kiosk mode
+  const navigateToKiosk = useCallback(() => {
+    window.history.pushState({}, '', `/${KIOSK_PATH}`);
+    setIsBackend(false);
+    setIsKiosk(true);
   }, []);
 
   // Handle admin login
@@ -181,7 +240,14 @@ function App() {
   const handleUserUpdate = useCallback((user: User) => {
     try {
       setCurrentUser(user);
-      localStorage.setItem('currentUser', JSON.stringify(user));
+      
+      try {
+        localStorage.setItem('currentUser', JSON.stringify(user));
+      } catch (e) {
+        console.error('Error saving user to localStorage:', e);
+        toast.warning('Profile updated but could not be saved locally');
+      }
+      
       toast.success('Profile updated successfully!');
     } catch (error) {
       console.error('Error updating user:', error);
@@ -396,9 +462,7 @@ function App() {
     try {
       console.log(`🔒 Locking request: ${id}`);
       
-      const { error } = await supabase.rpc('lock_request', {
-        request_id: id
-      });
+      const { error } = await supabase.rpc('lock_request', { request_id: id });
 
       if (error) throw error;
 
@@ -421,9 +485,7 @@ function App() {
     try {
       console.log(`🔓 Unlocking request: ${id}`);
       
-      const { error } = await supabase.rpc('unlock_request', {
-        request_id: id
-      });
+      const { error } = await supabase.rpc('unlock_request', { request_id: id });
 
       if (error) throw error;
 
@@ -513,13 +575,25 @@ function App() {
     return requests.map(req => ({
       ...req,
       votes: optimisticVotes.get(req.id) ?? req.votes ?? 0
-    }));
+    }))];
   }, [requests, optimisticVotes]);
 
   // Show loading screen
   if (isInitializing) {
+    return <LoadingSpinner />;
+  }
+
+  // Show kiosk mode
+  if (isKiosk) {
     return (
-      <LoadingSpinner />
+      <KioskPage
+        songs={songs}
+        requests={mergedRequests}
+        activeSetList={activeSetList}
+        onSubmitRequest={handleSubmitRequest}
+        onVoteRequest={handleVoteRequest}
+        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
+      />
     );
   }
 
@@ -540,21 +614,34 @@ function App() {
           <div className="bg-gray-800 border-b border-gray-700">
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center space-x-4">
+                <Logo 
+                  url={settings?.band_logo_url || DEFAULT_BAND_LOGO} 
+                  className="h-8" 
+                />
                 <h1 className="text-xl font-bold">Admin Dashboard</h1>
               </div>
               
-              <button
-                onClick={navigateToFrontend}
-                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm"
-              >
-                View Frontend
-              </button>
-              <button
-                onClick={handleAdminLogout}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
-              >
-                Logout
-              </button>
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={navigateToFrontend}
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm"
+                >
+                  View Frontend
+                </button>
+                <button
+                  onClick={navigateToKiosk}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                >
+                  Kiosk Mode
+                </button>
+                <button
+                  onClick={handleAdminLogout}
+                  className="flex items-center space-x-2 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Logout</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -596,7 +683,7 @@ function App() {
                 <SettingsManager />
                 <LogoManager />
                 <ColorCustomizer />
-                <TickerManager />
+                <TickerManager isAdmin={true} />
               </div>
             )}
           </div>
@@ -606,16 +693,6 @@ function App() {
   }
 
   // Show frontend interface
-  if (!currentUser) {
-    return (
-      <ErrorBoundary>
-        <LandingPage 
-          onComplete={handleUserUpdate}
-          initialUser={currentUser}
-        />
-      </ErrorBoundary>
-    );
-  }
 
   return (
     <ErrorBoundary>
@@ -630,6 +707,7 @@ function App() {
         onBackendAccess={navigateToBackend}
         isAdmin={isAdmin}
         isOnline={isOnline}
+        logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
         logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
       />
     </ErrorBoundary>

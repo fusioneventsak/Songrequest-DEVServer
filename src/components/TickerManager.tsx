@@ -3,28 +3,33 @@ import { Play, Pause, Type, Music } from 'lucide-react';
 import { useUiSettings } from '../hooks/useUiSettings';
 
 interface TickerManagerProps {
-  nextSong?: {
+  isAdmin?: boolean;
+  nextSong?: { 
     title: string;
     artist?: string;
   };
-  isActive: boolean;
-  customMessage: string;
-  onUpdateMessage: (message: string) => void;
-  onToggleActive: () => void;
+  isActive?: boolean;
+  customMessage?: string;
+  onUpdateMessage?: (message: string) => void;
+  onToggleActive?: () => void;
 }
 
 export function TickerManager({ 
+  isAdmin = false,
   nextSong, 
-  isActive, 
-  customMessage, 
-  onUpdateMessage, 
-  onToggleActive 
+  isActive = false, 
+  customMessage = '', 
+  onUpdateMessage = () => {}, 
+  onToggleActive = () => {} 
 }: TickerManagerProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [localMessage, setLocalMessage] = useState(customMessage);
   const timeoutRef = useRef<NodeJS.Timeout>();
   const { updateSettings } = useUiSettings();
+
+  // If not admin, don't render anything
+  if (!isAdmin) return null;
 
   // Sync localMessage when customMessage prop changes from external sources
   useEffect(() => {

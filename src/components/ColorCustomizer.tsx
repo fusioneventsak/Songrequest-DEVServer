@@ -3,7 +3,7 @@ import { Save, Palette, RefreshCw, EyeIcon } from 'lucide-react';
 import { useUiSettings } from '../hooks/useUiSettings';
 
 interface ColorCustomizerProps {
-  isAdmin: boolean;
+  isAdmin?: boolean;
 }
 
 interface ColorState {

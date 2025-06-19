@@ -8,7 +8,17 @@ const SONGS_CACHE_KEY = 'songs:all';
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000; // 1 second base delay
 
-export function useSongSync(onUpdate: (songs: Song[]) => void) {
+interface UseSongSyncProps {
+  songs: Song[];
+  setSongs: (songs: Song[]) => void;
+  isOnline: boolean;
+}
+
+export function useSongSync({
+  songs,
+  setSongs,
+  isOnline
+}: UseSongSyncProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -38,8 +48,8 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
         const cachedSongs = cacheService.get<Song[]>(SONGS_CACHE_KEY);
         if (cachedSongs?.length > 0) {
           console.log('Using cached songs');
-          if (mountedRef.current) {
-            onUpdate(cachedSongs);
+          if (mountedRef.current && setSongs) {
+            setSongs(cachedSongs);
             setIsLoading(false);
           }
           return;
@@ -66,8 +76,10 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
       if (songsError) throw songsError;
 
       if (songsData && mountedRef.current) {
-        cacheService.setSongs(SONGS_CACHE_KEY, songsData);
-        onUpdate(songsData);
+        if (songsData) {
+          cacheService.setSongs(SONGS_CACHE_KEY, songsData);
+          setSongs(songsData);
+        }
         setRetryCount(0); // Reset retry count on success
       }
     } catch (error) {
@@ -80,7 +92,7 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
         const cachedSongs = cacheService.get<Song[]>(SONGS_CACHE_KEY);
         if (cachedSongs) {
           console.warn('Using stale cache due to fetch error');
-          onUpdate(cachedSongs);
+          setSongs(cachedSongs);
         }
         
         // Retry with exponential backoff
@@ -106,7 +118,7 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
       }
       fetchInProgressRef.current = false;
     }
-  }, [onUpdate, retryCount]);
+  }, [setSongs, retryCount]);
 
   // Setup realtime subscription
   useEffect(() => {
@@ -133,8 +145,10 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
     };
     
     // Initial fetch and subscription setup
-    fetchSongs();
-    setupSubscription();
+    if (isOnline) {
+      fetchSongs();
+      setupSubscription();
+    }
     
     // REMOVED: Periodic polling interval setup
     // No more setInterval for polling every 5 minutes
@@ -155,9 +169,32 @@ export function useSongSync(onUpdate: (songs: Song[]) => void) {
     };
   }, [fetchSongs]);
 
+  // Function to manually reconnect
+  const reconnectSongs = useCallback(() => {
+    console.log('🔄 Manually reconnecting songs subscription');
+    
+    // Clean up existing subscription
+    if (subscriptionRef.current) {
+      try {
+        subscriptionRef.current.unsubscribe();
+      } catch (e) {
+        console.warn('Error unsubscribing:', e);
+      }
+    }
+    
+    // Set up new subscription
+    if (isOnline) {
+      setupSubscription();
+      
+      // Force a fresh fetch
+      fetchSongs(true);
+    }
+  }, [fetchSongs, isOnline]);
+
   return { 
     isLoading, 
     error, 
-    refetch: () => fetchSongs(true) 
+    refetch: () => fetchSongs(true),
+    reconnectSongs
   };
 }
