@@ -937,9 +937,10 @@ function App() {
     return handleUserVote(id, true); // true = kiosk user
   }, []);
 
-  // 🚀 PURE REAL-TIME: No optimistic states - direct database + real-time only
+  // 🚀 FIXED: Direct vote handler without atomic functions 
   const handleUserVote = useCallback(async (id: string, isKioskUser: boolean): Promise<boolean> => {
-    console.log('👍 PURE REAL-TIME VOTE for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
+    console.log('👍 DIRECT VOTE for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
+    console.log('👤 Current user:', currentUser);
     
     if (!isOnline) {
       toast.error('Cannot vote while offline. Please check your internet connection.');
@@ -947,8 +948,11 @@ function App() {
     }
     
     try {
+      // For kiosk users, we don't need login check
       if (!isKioskUser && !currentUser) {
-        throw new Error('You must be logged in to vote');
+        console.error('❌ No current user for logged-in vote');
+        toast.error('Please set up your profile first');
+        return false;
       }
 
       // Don't allow voting on temporary requests
@@ -974,16 +978,19 @@ function App() {
           })
           .eq('id', id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Kiosk vote failed:', error);
+          throw error;
+        }
         success = true;
-        console.log('✅ Kiosk vote successful - real-time will update UI');
+        console.log('✅ Kiosk vote successful');
       } else {
-        // Logged-in users: Check for existing vote first
+        // Logged-in users: Direct database operations without atomic functions
+        console.log('🔄 Logged-in user vote - checking existing votes...');
+        const userId = currentUser!.id || currentUser!.name;
+        
         try {
-          console.log('🔄 Checking for existing vote...');
-          const userId = currentUser!.id || currentUser!.name;
-          
-          // Check if already voted using user_votes table or fallback method
+          // Try to check user_votes table first
           const { data: existingVote, error: voteCheckError } = await supabase
             .from('user_votes')
             .select('id')
@@ -992,56 +999,52 @@ function App() {
             .maybeSingle();
 
           if (voteCheckError && voteCheckError.code !== 'PGRST116') {
-            // user_votes table might not exist, try atomic function
-            console.log('🔄 user_votes check failed, trying atomic function...');
-            const { data, error } = await supabase.rpc('add_vote', {
-              p_request_id: id,
-              p_user_id: userId
-            });
+            console.warn('user_votes table access failed:', voteCheckError);
+            // Table might not exist, proceed with direct increment
+          }
 
-            if (error) throw error;
-            success = data === true;
-            console.log('✅ Atomic vote result:', success);
-          } else if (existingVote) {
+          if (existingVote) {
             console.log('❌ User already voted');
             success = false;
           } else {
-            // Insert vote record and increment counter
-            console.log('📊 Adding new vote...');
-            const { error: insertError } = await supabase
-              .from('user_votes')
-              .insert({
-                request_id: id,
-                user_id: userId,
-                created_at: new Date().toISOString()
-              });
+            // Increment vote count directly
+            console.log('📊 Adding vote directly...');
+            const currentRequest = requests.find(r => r.id === id);
+            const newVoteCount = (currentRequest?.votes || 0) + 1;
+            
+            const { error: updateError } = await supabase
+              .from('requests')
+              .update({ 
+                votes: newVoteCount,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', id);
 
-            if (insertError) {
-              console.warn('user_votes insert failed, using direct increment:', insertError);
-              // Fallback: direct increment
-              const currentRequest = requests.find(r => r.id === id);
-              const newVoteCount = (currentRequest?.votes || 0) + 1;
-              
-              const { error: updateError } = await supabase
-                .from('requests')
-                .update({ votes: newVoteCount })
-                .eq('id', id);
-
-              if (updateError) throw updateError;
-              success = true;
-            } else {
-              // Also increment the counter in requests table
-              const currentRequest = requests.find(r => r.id === id);
-              const newVoteCount = (currentRequest?.votes || 0) + 1;
-              
-              const { error: updateError } = await supabase
-                .from('requests')
-                .update({ votes: newVoteCount })
-                .eq('id', id);
-
-              if (updateError) throw updateError;
-              success = true;
+            if (updateError) {
+              console.error('❌ Vote update failed:', updateError);
+              throw updateError;
             }
+
+            // Try to insert vote record if table exists
+            try {
+              const { error: insertError } = await supabase
+                .from('user_votes')
+                .insert({
+                  request_id: id,
+                  user_id: userId,
+                  created_at: new Date().toISOString()
+                });
+
+              if (insertError) {
+                console.warn('user_votes insert failed (table might not exist):', insertError);
+                // This is okay - we still incremented the vote count
+              }
+            } catch (insertError) {
+              console.warn('user_votes insert error (continuing anyway):', insertError);
+            }
+
+            success = true;
+            console.log('✅ Logged-in vote successful');
           }
         } catch (fallbackError) {
           console.error('❌ Vote process failed:', fallbackError);
@@ -1068,16 +1071,16 @@ function App() {
       ) {
         toast.error('Network error. Please check your connection and try again.');
       } else {
-        toast.error('Failed to vote for this request. Please try again.');
+        toast.error(`Failed to vote: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
       
       return false;
     }
   }, [currentUser, isOnline, requests]);
 
-  // 🚀 INSTANT TICKER: Enhanced lock handler with immediate ticker updates
+  // 🚀 FIXED: Lock handler without atomic functions (they don't exist)
   const handleLockRequest = useCallback(async (id: string) => {
-    console.log('🔒 INSTANT LOCK: Toggling lock for request:', id);
+    console.log('🔒 DIRECT LOCK: Toggling lock for request:', id);
     
     if (!isOnline) {
       toast.error('Cannot update requests while offline. Please check your internet connection.');
@@ -1093,59 +1096,42 @@ function App() {
       
       // Toggle the locked status
       const newLockedState = !requestToUpdate.isLocked;
-      console.log(`🎯 INSTANT LOCK: Setting lock state to: ${newLockedState} for "${requestToUpdate.title}"`);
+      console.log(`🎯 DIRECT LOCK: Setting lock state to: ${newLockedState} for "${requestToUpdate.title}"`);
       
-      // Try atomic database functions first, fallback to direct update
-      try {
-        if (newLockedState) {
-          console.log('🔄 Attempting atomic lock_request function...');
-          const { error } = await supabase.rpc('lock_request', { request_id: id });
-          if (error) throw error;
-          console.log('✅ Atomic lock successful');
-        } else {
-          console.log('🔄 Attempting atomic unlock_request function...');
-          const { error } = await supabase.rpc('unlock_request', { request_id: id });
-          if (error) throw error;
-          console.log('✅ Atomic unlock successful');
-        }
-      } catch (atomicError) {
-        console.warn('⚠️ Atomic lock function failed, using INSTANT fallback method:', atomicError);
+      // Direct database update without atomic functions
+      if (newLockedState) {
+        // When locking, unlock all others first, then lock this one
+        console.log('🔄 DIRECT: Unlocking all requests first...');
+        await supabase
+          .from('requests')
+          .update({ 
+            is_locked: false,
+            updated_at: new Date().toISOString()
+          })
+          .neq('id', '00000000-0000-0000-0000-000000000000');
         
-        // INSTANT Fallback: Direct database update
-        if (newLockedState) {
-          // When locking, unlock all others first, then lock this one
-          console.log('🔄 INSTANT Fallback: Unlocking all requests first...');
-          await supabase
-            .from('requests')
-            .update({ 
-              is_locked: false,
-              updated_at: new Date().toISOString()
-            })
-            .neq('id', '00000000-0000-0000-0000-000000000000');
-          
-          console.log('🔄 INSTANT Fallback: Locking target request...');
-          const { error: lockError } = await supabase
-            .from('requests')
-            .update({ 
-              is_locked: true,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', id);
-          
-          if (lockError) throw lockError;
-        } else {
-          // When unlocking, just unlock this one
-          console.log('🔄 INSTANT Fallback: Unlocking request...');
-          const { error: unlockError } = await supabase
-            .from('requests')
-            .update({ 
-              is_locked: false,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', id);
-          
-          if (unlockError) throw unlockError;
-        }
+        console.log('🔄 DIRECT: Locking target request...');
+        const { error: lockError } = await supabase
+          .from('requests')
+          .update({ 
+            is_locked: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+        
+        if (lockError) throw lockError;
+      } else {
+        // When unlocking, just unlock this one
+        console.log('🔄 DIRECT: Unlocking request...');
+        const { error: unlockError } = await supabase
+          .from('requests')
+          .update({ 
+            is_locked: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+        
+        if (unlockError) throw unlockError;
       }
       
       // Show success message immediately
@@ -1157,14 +1143,11 @@ function App() {
         console.log('🎯 TICKER UPDATE: Song unlocked - real-time will clear ticker instantly across all users');
       }
       
-      console.log('✅ INSTANT LOCK: Lock state updated - real-time subscription will handle UI updates');
-      
-      // Real-time subscription will handle the updates automatically
-      // No manual refresh needed - the lock change will trigger instant updates
+      console.log('✅ DIRECT LOCK: Lock state updated - real-time subscription will handle UI updates');
       
     } catch (error) {
       console.error('❌ Error toggling request lock:', error);
-      toast.error('Failed to update request. Please try again.');
+      toast.error(`Failed to update request: ${error instanceof Error ? error.message : 'Unknown error'}`);
       
       // Force a refresh only on error
       reconnectRequests();
