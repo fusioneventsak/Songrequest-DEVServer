@@ -1,55 +1,4 @@
-// Create merged requests with optimistic updates - FIXED to show all requests
-  const mergedRequests = useMemo(() => {
-    console.log('🔀 Merging requests:', {
-      realRequests: requests.length,
-      optimisticRequests: optimisticRequests.size,
-      optimisticVotes: optimisticVotes.size
-    });
-
-    // Start with real requests and apply optimistic vote updates
-    const realRequestsWithVotes = requests.map(req => {
-      const optimisticVoteCount = optimisticVotes.get(req.id);
-      const result = {
-        ...req,
-        votes: optimisticVoteCount ?? req.votes ?? 0
-      };
-      
-      if (optimisticVoteCount !== undefined) {
-        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
-      }
-      
-      return result;
-    });
-
-    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
-    const optimisticRequestsList = Array.from(optimisticRequests.values())
-      .filter(optReq => {
-        // Only include if it's a temp request AND not already in real requests
-        const isTemp = optReq.id?.startsWith('temp_');
-        const existsInReal = requests.some(realReq => 
-          realReq.title === optReq.title && realReq.artist === optReq.artist
-        );
-        
-        const shouldInclude = isTemp && !existsInReal;
-        
-        if (isTemp) {
-          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
-        }
-        
-        return shouldInclude;
-      });
-
-    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
-    
-    console.log('✅ Final merged requests:', {
-      total: result.length,
-      real: realRequestsWithVotes.length,
-      optimistic: optimisticRequestsList.length,
-      titles: result.map(r => r.title)
-    });
-
-    return result;
-  }, [requests, optimisticRequests, optimisticVotes]);import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Music4, ThumbsUp, UserCircle, Settings } from 'lucide-react';
 import { Logo } from './shared/Logo';
 import { SongList } from './SongList';
@@ -58,7 +7,6 @@ import { RequestModal } from './RequestModal';
 import { LandingPage } from './LandingPage';
 import { Ticker } from './Ticker';
 import { useUiSettings } from '../hooks/useUiSettings';
-import { supabase } from '../utils/supabase';
 import toast from 'react-hot-toast';
 import type { Song, SongRequest, User, RequestFormData } from '../types';
 
@@ -82,7 +30,7 @@ interface UserFrontendProps {
 
 export function UserFrontend({
   songs,
-  requests, // This should already be merged requests from App.tsx
+  requests, // This is already merged requests from App.tsx
   activeSetList,
   currentUser,
   onSubmitRequest,
@@ -99,7 +47,7 @@ export function UserFrontend({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState<'requests' | 'upvote'>('requests');
   
-  // Remove optimistic state management - this is now handled in App.tsx
+  // Local state for UI feedback only
   const [submittingStates, setSubmittingStates] = useState<Set<string>>(new Set());
   const [votingStates, setVotingStates] = useState<Set<string>>(new Set());
   
@@ -148,7 +96,7 @@ export function UserFrontend({
     });
   }, [availableSongs, searchTerm]);
 
-  // Enhanced song request handler - simplified since optimistic updates are in App.tsx
+  // Simplified song request handler - App.tsx handles optimistic updates
   const handleRequestSong = useCallback(async (song: Song) => {
     if (!currentUser) {
       toast.error('Please set up your profile first');
@@ -185,7 +133,7 @@ export function UserFrontend({
     }
   }, [currentUser, onSubmitRequest]);
 
-  // Enhanced vote handler - simplified since optimistic updates are in App.tsx
+  // Simplified vote handler - App.tsx handles optimistic updates
   const handleVote = useCallback(async (requestId: string): Promise<boolean> => {
     if (!currentUser) {
       toast.error('Please set up your profile first');
@@ -219,59 +167,6 @@ export function UserFrontend({
       });
     }
   }, [currentUser, onVoteRequest, votingStates]);
-
-  // Create merged requests with optimistic updates - FIXED to show all requests
-  const mergedRequests = useMemo(() => {
-    console.log('🔀 Merging requests:', {
-      realRequests: requests.length,
-      optimisticRequests: optimisticRequests.size,
-      optimisticVotes: optimisticVotes.size
-    });
-
-    // Start with real requests and apply optimistic vote updates
-    const realRequestsWithVotes = requests.map(req => {
-      const optimisticVoteCount = optimisticVotes.get(req.id);
-      const result = {
-        ...req,
-        votes: optimisticVoteCount ?? req.votes ?? 0
-      };
-      
-      if (optimisticVoteCount !== undefined) {
-        console.log(`📊 Applied optimistic vote to ${req.title}: ${req.votes} -> ${optimisticVoteCount}`);
-      }
-      
-      return result;
-    });
-
-    // Add only NEW optimistic requests (ones that don't exist in real requests yet)
-    const optimisticRequestsList = Array.from(optimisticRequests.values())
-      .filter(optReq => {
-        // Only include if it's a temp request AND not already in real requests
-        const isTemp = optReq.id?.startsWith('temp_');
-        const existsInReal = requests.some(realReq => 
-          realReq.title === optReq.title && realReq.artist === optReq.artist
-        );
-        
-        const shouldInclude = isTemp && !existsInReal;
-        
-        if (isTemp) {
-          console.log(`🔍 Optimistic request ${optReq.title}: existsInReal=${existsInReal}, shouldInclude=${shouldInclude}`);
-        }
-        
-        return shouldInclude;
-      });
-
-    const result = [...realRequestsWithVotes, ...optimisticRequestsList];
-    
-    console.log('✅ Final merged requests:', {
-      total: result.length,
-      real: realRequestsWithVotes.length,
-      optimistic: optimisticRequestsList.length,
-      titles: result.map(r => r.title)
-    });
-
-    return result;
-  }, [requests, optimisticRequests, optimisticVotes]);
 
   const handleSongSelect = (song: Song) => {
     console.log('🎵 Song selected:', song.title);
@@ -412,7 +307,7 @@ export function UserFrontend({
             </>
           ) : (
             <UpvoteList
-              requests={requests} // Now using passed requests with optimistic updates
+              requests={requests} // Using passed requests with optimistic updates
               onVote={handleVote}
               currentUserId={currentUser.id || currentUser.name}
               votingStates={votingStates}
@@ -488,7 +383,7 @@ export function UserFrontend({
           song={selectedSong}
           onSubmit={async (data) => {
             console.log('📝 Modal onSubmit called with:', data);
-            // The modal passes the form data, use onSubmitRequest instead
+            // The modal passes the form data, use onSubmitRequest directly
             return await onSubmitRequest(data);
           }}
           currentUser={currentUser}
