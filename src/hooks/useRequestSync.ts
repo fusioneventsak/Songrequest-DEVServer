@@ -11,7 +11,19 @@ interface CachedData {
   timestamp: number;
 }
 
-export function useRequestSync(onUpdate: (requests: SongRequest[]) => void) {
+interface UseRequestSyncProps {
+  requests: SongRequest[];
+  setRequests: (requests: SongRequest[]) => void;
+  isOnline: boolean;
+  currentUser: any;
+}
+
+export function useRequestSync({
+  requests,
+  setRequests,
+  isOnline,
+  currentUser
+}: UseRequestSyncProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -35,7 +47,7 @@ export function useRequestSync(onUpdate: (requests: SongRequest[]) => void) {
       
       if (age < CACHE_DURATION && data.length > 0) {
         if (mountedRef.current) {
-          onUpdate(data);
+          setRequests(data);
           setIsLoading(false);
         }
         return;
@@ -77,7 +89,7 @@ export function useRequestSync(onUpdate: (requests: SongRequest[]) => void) {
         console.log('❌ No requests found - requestsData is null/undefined');
         const emptyResult: SongRequest[] = [];
         if (mountedRef.current) {
-          onUpdate(emptyResult);
+          setRequests(emptyResult);
           cacheRef.current = { data: emptyResult, timestamp: Date.now() };
         }
         return;
@@ -120,14 +132,14 @@ export function useRequestSync(onUpdate: (requests: SongRequest[]) => void) {
 
       if (mountedRef.current) {
         console.log('🚀 About to call onUpdate with:', transformedRequests.length, 'requests');
-        onUpdate(transformedRequests);
+        setRequests(transformedRequests);
         cacheRef.current = { data: transformedRequests, timestamp: Date.now() };
         lastUpdateRef.current = Date.now();
         setRetryCount(0);
       }
     } catch (error) {
       console.error('❌ Error fetching requests:', error);
-      if (mountedRef.current) {
+          setRequests(cachedSetLists);
         setError(error as Error);
         
         // Retry logic with exponential backoff
@@ -265,9 +277,30 @@ export function useRequestSync(onUpdate: (requests: SongRequest[]) => void) {
   }, [fetchRequests]);
 
   return {
-    isLoading,
+  // Function to manually reconnect and refresh data
+  const reconnectRequests = useCallback(() => {
+    console.log('🔄 Manually reconnecting requests subscription');
+    
+    // Clean up existing subscription
+    if (subscriptionRef.current) {
+      try {
+        subscriptionRef.current.unsubscribe();
+      } catch (e) {
+        console.warn('Error unsubscribing:', e);
+      }
+    }
+    
+    // Set up new subscription
+    setupSubscription();
+    
+    // Force a fresh fetch
+    fetchRequests(true);
+  }, [fetchRequests]);
+
+  return {
     error,
     refresh,
-    retryCount
+    refresh: () => fetchRequests(true),
+    reconnectRequests
   };
 }

@@ -948,8 +948,8 @@ function App() {
     }
     
     try {
-      // For kiosk users, we don't need login check
-      if (!isKioskUser && !currentUser) {
+      // FIXED: Only check if currentUser exists, not specific properties
+      if (!currentUser || !currentUser.name) {
         console.error('❌ No current user for logged-in vote');
         toast.error('Please set up your profile first');
         return false;
@@ -1467,7 +1467,7 @@ function App() {
     try {
       await updateSettings({
         band_logo_url: url,
-        updated_at: new Date().toISOString()
+        p_user_id: currentUser.name || 'anonymous' // Use name or fallback to anonymous
       });
       
       toast.success('Logo updated successfully');

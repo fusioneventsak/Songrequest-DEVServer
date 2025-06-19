@@ -64,8 +64,15 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
     const optimisticLockedIds = new Set(optimisticLocks);
     
     // If server state matches optimistic state, clear optimistic state
-    const needsClear = Array.from(optimisticLockedIds).every(id => serverLockedIds.has(id)) &&
-                      serverLockedIds.size <= 1; // Should only have 0 or 1 locked request
+    // FIXED: Improved logic to clear optimistic locks when server state is updated
+    const needsClear = (
+      // Either the server has the same locks we optimistically set
+      (Array.from(optimisticLockedIds).every(id => serverLockedIds.has(id)) && 
+       serverLockedIds.size <= 1) ||
+      // Or the server has different locks than what we set (meaning our action was processed)
+      (optimisticLockedIds.size > 0 && serverLockedIds.size > 0 && 
+       !Array.from(serverLockedIds).every(id => optimisticLockedIds.has(id)))
+    );
     
     if (needsClear && optimisticLocks.size > 0) {
       console.log('✅ Clearing optimistic locks - server state matches');
@@ -247,6 +254,14 @@ export function QueueView({ requests, onLockRequest, onMarkPlayed, onResetQueue 
       }
       
       console.log('✅ Lock status updated in database');
+      
+      // Force a refresh of the requests data to ensure real-time updates
+      setTimeout(() => {
+        if (mountedRef.current) {
+          // This will trigger a refresh in the parent component
+          setOptimisticLocks(new Set());
+        }
+      }, 300);
       
       // Show success toast
       toast.success(newLockedState ? 'Request locked as next song' : 'Request unlocked');

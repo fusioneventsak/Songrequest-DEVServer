@@ -7,14 +7,14 @@ import toast from 'react-hot-toast';
 interface UpvoteListProps {
   requests: SongRequest[];
   onVote: (id: string) => Promise<boolean>;
-  currentUserId: string;
+  currentUserId: string | undefined;
+  votingStates?: Set<string>;
 }
 
 export function UpvoteList({ requests, onVote, currentUserId, votingStates = new Set() }: UpvoteListProps) {
   const { settings } = useUiSettings();
   const songBorderColor = settings?.song_border_color || settings?.frontend_accent_color || '#ff00ff';
   const accentColor = settings?.frontend_accent_color || '#ff00ff';
-  const secondaryColor = settings?.frontend_secondary_accent || '#9d00ff';
 
   // Simple filtering - show requests that aren't marked as played
   const activeRequests = useMemo(() => {
@@ -46,9 +46,8 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
 
   const handleVote = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
-    e.stopPropagation();
 
-    if (!currentUserId || votingStates.has(id)) {
+    if ((!currentUserId && !currentUserId) || votingStates.has(id)) {
       return;
     }
 
@@ -56,12 +55,6 @@ export function UpvoteList({ requests, onVote, currentUserId, votingStates = new
       const success = await onVote(id);
       
       if (success) {
-        // Success feedback is handled by the parent component
-        // This allows for optimistic updates to work properly
-      }
-    } catch (error) {
-      console.error('Vote error:', error);
-      toast.error('Failed to vote. Please try again.');
     }
   };
 
