@@ -527,7 +527,7 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline, requests, optimisticVotes]);
+  }, [currentUser, isOnline]);
 
   // Handle locking a request (marking it as next)
   const handleLockRequest = useCallback(async (id: string) => {
