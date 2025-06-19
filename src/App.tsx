@@ -890,9 +890,19 @@ function App() {
     }
   }, [reconnectRequests]);
 
-  // 🚀 Fixed vote handler with proper optimistic updates
+  // 🚀 ENHANCED: Create separate vote handlers for different user types
   const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
-    console.log('👍 Voting for request:', id);
+    return handleUserVote(id, false); // false = not kiosk user
+  }, []);
+
+  // Kiosk vote handler (unlimited votes)
+  const handleKioskVote = useCallback(async (id: string): Promise<boolean> => {
+    return handleUserVote(id, true); // true = kiosk user
+  }, []);
+
+  // Unified vote handler
+  const handleUserVote = useCallback(async (id: string, isKioskUser: boolean): Promise<boolean> => {
+    console.log('👍 Voting for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
     
     if (!isOnline) {
       toast.error('Cannot vote while offline. Please check your internet connection.');
@@ -900,7 +910,7 @@ function App() {
     }
     
     try {
-      if (!currentUser) {
+      if (!isKioskUser && !currentUser) {
         throw new Error('You must be logged in to vote');
       }
 
@@ -916,19 +926,97 @@ function App() {
       setOptimisticVotes(prev => new Map([...prev, [id, currentVotes + 1]]));
       console.log(`📊 Optimistically incremented vote for request ${id}: ${currentVotes} -> ${currentVotes + 1}`);
 
-      // Use the atomic database function for voting
-      const { data, error } = await supabase.rpc('add_vote', {
-        p_request_id: id,
-        p_user_id: currentUser.id || currentUser.name
-      });
+      let success = false;
 
-      if (error) throw error;
-
-      if (data === true) {
-        console.log('✅ Vote added successfully');
-        toast.success('Vote added!');
+      if (isKioskUser) {
+        // Kiosk users: Direct increment without user tracking
+        console.log('🏪 Kiosk vote - direct increment without user tracking');
         
-        // Keep optimistic vote for a moment, then let real data take over
+        const newVoteCount = currentVotes + 1;
+        const { error } = await supabase
+          .from('requests')
+          .update({ 
+            votes: newVoteCount,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) throw error;
+        success = true;
+      } else {
+        // Logged-in users: Check for existing vote first
+        try {
+          console.log('🔄 Attempting atomic vote function for logged-in user...');
+          const { data, error } = await supabase.rpc('add_vote', {
+            p_request_id: id,
+            p_user_id: currentUser!.id || currentUser!.name
+          });
+
+          if (error) throw error;
+          success = data === true;
+          console.log('✅ Atomic vote result:', success);
+        } catch (atomicError) {
+          console.warn('⚠️ Atomic function failed, using fallback method:', atomicError);
+          
+          // Fallback: Manual vote tracking
+          const userId = currentUser!.id || currentUser!.name;
+          const { data: existingVote, error: voteCheckError } = await supabase
+            .from('user_votes')
+            .select('id')
+            .eq('request_id', id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (voteCheckError && voteCheckError.code !== 'PGRST116') {
+            throw voteCheckError;
+          }
+
+          if (existingVote) {
+            console.log('❌ User already voted');
+            success = false;
+          } else {
+            // Insert vote record and increment counter
+            const { error: insertError } = await supabase
+              .from('user_votes')
+              .insert({
+                request_id: id,
+                user_id: userId,
+                created_at: new Date().toISOString()
+              });
+
+            if (insertError) {
+              // If user_votes table doesn't exist, just increment the counter
+              console.log('📊 Fallback: Direct vote increment');
+              const newVoteCount = (currentRequest?.votes || 0) + 1;
+              
+              const { error: updateError } = await supabase
+                .from('requests')
+                .update({ votes: newVoteCount })
+                .eq('id', id);
+
+              if (updateError) throw updateError;
+              success = true;
+            } else {
+              // Also increment the counter in requests table
+              const newVoteCount = (currentRequest?.votes || 0) + 1;
+              
+              const { error: updateError } = await supabase
+                .from('requests')
+                .update({ votes: newVoteCount })
+                .eq('id', id);
+
+              if (updateError) throw updateError;
+              success = true;
+            }
+          }
+        }
+      }
+
+      if (success) {
+        console.log('✅ Vote added successfully');
+        toast.success(isKioskUser ? '🔥 Vote added!' : 'Vote added!');
+        
+        // Keep optimistic vote for a short time, then let real data take over
         setTimeout(() => {
           if (mountedRef.current) {
             console.log(`🧹 Removing optimistic vote for request ${id}`);
@@ -938,7 +1026,7 @@ function App() {
               return newMap;
             });
           }
-        }, 1500);
+        }, 1000);
         
         return true;
       } else {
@@ -975,9 +1063,9 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline, requests, optimisticVotes]);
+  }, [currentUser, isOnline, requests, optimisticVotes, mountedRef]);
 
-  // Handle locking a request (marking it as next)
+  // 🚀 FIXED: Enhanced lock handler with fallback and immediate updates
   const handleLockRequest = useCallback(async (id: string) => {
     console.log('🔒 Toggling lock for request:', id);
     
@@ -995,25 +1083,82 @@ function App() {
       
       // Toggle the locked status
       const newLockedState = !requestToUpdate.isLocked;
-      console.log(`Setting lock state to: ${newLockedState}`);
+      console.log(`Setting lock state to: ${newLockedState} for "${requestToUpdate.title}"`);
       
-      // Use atomic database function for locking
+      // Try atomic database functions first, fallback to direct update
+      try {
+        if (newLockedState) {
+          console.log('🔄 Attempting atomic lock_request function...');
+          const { error } = await supabase.rpc('lock_request', { request_id: id });
+          if (error) throw error;
+          console.log('✅ Atomic lock successful');
+        } else {
+          console.log('🔄 Attempting atomic unlock_request function...');
+          const { error } = await supabase.rpc('unlock_request', { request_id: id });
+          if (error) throw error;
+          console.log('✅ Atomic unlock successful');
+        }
+      } catch (atomicError) {
+        console.warn('⚠️ Atomic lock function failed, using fallback method:', atomicError);
+        
+        // Fallback: Direct database update
+        if (newLockedState) {
+          // When locking, unlock all others first, then lock this one
+          console.log('🔄 Fallback: Unlocking all requests first...');
+          await supabase
+            .from('requests')
+            .update({ is_locked: false })
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+          
+          console.log('🔄 Fallback: Locking target request...');
+          const { error: lockError } = await supabase
+            .from('requests')
+            .update({ 
+              is_locked: true,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', id);
+          
+          if (lockError) throw lockError;
+        } else {
+          // When unlocking, just unlock this one
+          console.log('🔄 Fallback: Unlocking request...');
+          const { error: unlockError } = await supabase
+            .from('requests')
+            .update({ 
+              is_locked: false,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', id);
+          
+          if (unlockError) throw unlockError;
+        }
+      }
+      
+      // Force immediate refresh to update all components including ticker
+      setTimeout(() => {
+        console.log('🔄 Forcing immediate refresh after lock change...');
+        reconnectRequests();
+      }, 100);
+      
+      // Show success message
       if (newLockedState) {
-        const { error } = await supabase.rpc('lock_request', { request_id: id });
-        if (error) throw error;
-        toast.success('Request locked as next up!');
+        toast.success(`🔒 "${requestToUpdate.title}" locked as next up!`);
+        console.log('🎯 Song locked - ticker should update');
       } else {
-        const { error } = await supabase.rpc('unlock_request', { request_id: id });
-        if (error) throw error;
-        toast.success('Request unlocked.');
+        toast.success(`🔓 "${requestToUpdate.title}" unlocked`);
+        console.log('🎯 Song unlocked - ticker should clear');
       }
       
       console.log('✅ Lock state updated successfully');
     } catch (error) {
       console.error('❌ Error toggling request lock:', error);
       toast.error('Failed to update request. Please try again.');
+      
+      // Force a refresh to get the current state
+      reconnectRequests();
     }
-  }, [mergedRequests, isOnline]);
+  }, [mergedRequests, isOnline, reconnectRequests]);
 
   // 🚀 CRITICAL FIX: Enhanced mark as played with immediate persistence
   const handleMarkPlayed = useCallback(async (id: string) => {
@@ -1360,7 +1505,7 @@ function App() {
           requests={mergedRequests}
           activeSetList={activeSetList}
           onSubmitRequest={handleSubmitRequest}
-          onVoteRequest={handleVoteRequest}
+          onVoteRequest={handleKioskVote}
           logoUrl={settings?.band_logo_url || DEFAULT_BAND_LOGO}
         />
       </ErrorBoundary>
@@ -1370,6 +1515,16 @@ function App() {
   // Show backend if accessing /backend and authenticated
   if (isBackend && isAdmin) {
     const lockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
+    console.log('🎯 Backend: Looking for locked request...', {
+      totalRequests: mergedRequests.length,
+      lockedRequest: lockedRequest ? {
+        id: lockedRequest.id,
+        title: lockedRequest.title,
+        artist: lockedRequest.artist,
+        isLocked: lockedRequest.isLocked,
+        isPlayed: lockedRequest.isPlayed
+      } : null
+    });
     
     return (
       <ErrorBoundary>
@@ -1516,7 +1671,19 @@ function App() {
     );
   }
 
-  // Show main frontend with merged requests
+  // Show main frontend with merged requests and locked song for ticker
+  const frontendLockedRequest = mergedRequests.find(r => r.isLocked && !r.isPlayed);
+  console.log('🎯 Frontend: Looking for locked request for ticker...', {
+    totalRequests: mergedRequests.length,
+    lockedRequest: frontendLockedRequest ? {
+      id: frontendLockedRequest.id,
+      title: frontendLockedRequest.title,
+      artist: frontendLockedRequest.artist,
+      isLocked: frontendLockedRequest.isLocked,
+      isPlayed: frontendLockedRequest.isPlayed
+    } : null
+  });
+
   return (
     <ErrorBoundary>
       <UserFrontend 
@@ -1531,6 +1698,7 @@ function App() {
         isAdmin={isAdmin}
         onLogoClick={onLogoClick}
         onBackendAccess={navigateToBackend}
+        lockedRequest={frontendLockedRequest} // Pass locked request for ticker
       />
     </ErrorBoundary>
   );
