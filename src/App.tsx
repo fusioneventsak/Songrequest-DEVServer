@@ -243,17 +243,22 @@ function App() {
     });
   }, [requests, optimisticRequests]);
 
-  // Add debugging for when mergedRequests change
+  // Add debugging for when mergedRequests change with special focus on locked requests
   useEffect(() => {
-    console.log('🔄 App: mergedRequests changed:', {
-      length: mergedRequests.length,
-      lockedRequests: mergedRequests.filter(r => r.isLocked).map(r => ({
-        id: r.id,
-        title: r.title,
-        isLocked: r.isLocked,
-        isPlayed: r.isPlayed
-      })),
-      mergedRequests: mergedRequests.map(r => ({
+    const lockedRequests = mergedRequests.filter(r => r.isLocked);
+    const activeLockedRequest = lockedRequests.find(r => !r.isPlayed);
+    
+    console.log('🔄 App: mergedRequests changed - TICKER UPDATE CHECK:', {
+      totalRequests: mergedRequests.length,
+      totalLocked: lockedRequests.length,
+      activeLockedRequest: activeLockedRequest ? {
+        id: activeLockedRequest.id,
+        title: activeLockedRequest.title,
+        artist: activeLockedRequest.artist,
+        isLocked: activeLockedRequest.isLocked,
+        isPlayed: activeLockedRequest.isPlayed
+      } : null,
+      allRequests: mergedRequests.map(r => ({
         id: r.id,
         title: r.title,
         isPlayed: r.isPlayed,
@@ -261,19 +266,26 @@ function App() {
         votes: r.votes
       }))
     });
+    
+    // Log ticker state change
+    if (activeLockedRequest) {
+      console.log('🎯 TICKER SHOULD SHOW:', `"${activeLockedRequest.title}" by ${activeLockedRequest.artist || 'Unknown Artist'}`);
+    } else {
+      console.log('🎯 TICKER SHOULD BE EMPTY: No locked requests found');
+    }
   }, [mergedRequests]);
 
-  // Enhanced real-time subscription setup
+  // Enhanced real-time subscription setup with INSTANT updates
   useEffect(() => {
-    console.log('🚀 Setting up enhanced real-time subscriptions...');
+    console.log('🚀 Setting up INSTANT real-time subscriptions...');
     
     // Initial fetch
     reconnectRequests();
     setIsFetchingRequests(false);
     
-    // Real-time subscription with aggressive update strategy
+    // Real-time subscription with ZERO delay for critical changes
     const requestsChannel = supabase
-      .channel('enhanced_requests_channel')
+      .channel('instant_requests_channel')
       .on(
         'postgres_changes',
         {
@@ -282,21 +294,44 @@ function App() {
           table: 'requests'
         },
         (payload) => {
-          console.log('🚨 REAL-TIME: Request change detected', {
+          console.log('🚨 INSTANT REAL-TIME: Request change detected', {
             event: payload.eventType,
             title: payload.new?.title || payload.old?.title,
             id: payload.new?.id || payload.old?.id,
             isPlayed: payload.new?.is_played,
-            wasPlayed: payload.old?.is_played
+            wasPlayed: payload.old?.is_played,
+            isLocked: payload.new?.is_locked,
+            wasLocked: payload.old?.is_locked,
+            votes: payload.new?.votes,
+            oldVotes: payload.old?.votes
           });
           
-          // IMMEDIATE update for critical changes like marking as played
-          if (payload.eventType === 'UPDATE' && 
-              payload.old?.is_played !== payload.new?.is_played) {
-            console.log('🚨 CRITICAL: Song marked as played status changed!');
-            setTimeout(reconnectRequests, 25); // Ultra fast for played status
-          } else {
-            setTimeout(reconnectRequests, 50); // Fast for other changes
+          // INSTANT updates for ALL changes - no delays
+          if (payload.eventType === 'DELETE') {
+            console.log('🚨 DELETE detected - clearing queue across all users');
+            reconnectRequests(); // INSTANT
+          } else if (payload.eventType === 'UPDATE') {
+            // Check for lock changes
+            if (payload.old?.is_locked !== payload.new?.is_locked) {
+              console.log('🚨 LOCK STATUS CHANGED - updating ticker instantly');
+              reconnectRequests(); // INSTANT for ticker
+            }
+            // Check for vote changes
+            else if (payload.old?.votes !== payload.new?.votes) {
+              console.log('🚨 VOTE COUNT CHANGED - updating instantly');
+              reconnectRequests(); // INSTANT for votes
+            }
+            // Check for played status
+            else if (payload.old?.is_played !== payload.new?.is_played) {
+              console.log('🚨 PLAYED STATUS CHANGED - updating instantly');
+              reconnectRequests(); // INSTANT
+            }
+            else {
+              reconnectRequests(); // INSTANT for any other updates
+            }
+          } else if (payload.eventType === 'INSERT') {
+            console.log('🚨 NEW REQUEST INSERTED - updating instantly');
+            reconnectRequests(); // INSTANT
           }
         }
       )
@@ -308,34 +343,33 @@ function App() {
           table: 'requesters'
         },
         (payload) => {
-          console.log('🚨 REAL-TIME: Requester change detected', {
+          console.log('🚨 INSTANT REAL-TIME: Requester change detected', {
             event: payload.eventType,
             name: payload.new?.name || payload.old?.name,
             requestId: payload.new?.request_id || payload.old?.request_id
           });
           
-          // IMMEDIATE update - no debouncing
-          setTimeout(reconnectRequests, 50);
+          // INSTANT update for requester changes
+          reconnectRequests();
         }
       )
       .subscribe((status) => {
-        console.log('📡 Enhanced subscription status:', status);
+        console.log('📡 INSTANT subscription status:', status);
         
         if (status === 'SUBSCRIBED') {
-          console.log('✅ Enhanced real-time is ACTIVE');
+          console.log('✅ INSTANT real-time is ACTIVE');
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Enhanced real-time ERROR - will retry');
-          // Retry after 2 seconds
+          console.error('❌ INSTANT real-time ERROR - will retry');
+          // Immediate retry
           setTimeout(() => {
-            console.log('🔄 Retrying real-time subscription...');
+            console.log('🔄 Retrying INSTANT real-time subscription...');
             requestsChannel.unsubscribe();
-            // The useEffect will re-run and recreate the subscription
-          }, 2000);
+          }, 500); // Faster retry
         }
       });
 
     return () => {
-      console.log('🧹 Cleaning up enhanced real-time subscription');
+      console.log('🧹 Cleaning up INSTANT real-time subscription');
       requestsChannel.unsubscribe();
     };
   }, [reconnectRequests]);
@@ -903,9 +937,9 @@ function App() {
     return handleUserVote(id, true); // true = kiosk user
   }, []);
 
-  // 🚀 SIMPLIFIED: Direct vote handler without optimistic states
+  // 🚀 PURE REAL-TIME: No optimistic states - direct database + real-time only
   const handleUserVote = useCallback(async (id: string, isKioskUser: boolean): Promise<boolean> => {
-    console.log('👍 Voting for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
+    console.log('👍 PURE REAL-TIME VOTE for request:', id, 'User type:', isKioskUser ? 'kiosk' : 'logged-in');
     
     if (!isOnline) {
       toast.error('Cannot vote while offline. Please check your internet connection.');
@@ -927,7 +961,7 @@ function App() {
 
       if (isKioskUser) {
         // Kiosk users: Direct increment without user tracking
-        console.log('🏪 Kiosk vote - direct increment without user tracking');
+        console.log('🏪 Kiosk vote - direct database increment');
         
         const currentRequest = requests.find(r => r.id === id);
         const newVoteCount = (currentRequest?.votes || 0) + 1;
@@ -942,23 +976,14 @@ function App() {
 
         if (error) throw error;
         success = true;
+        console.log('✅ Kiosk vote successful - real-time will update UI');
       } else {
         // Logged-in users: Check for existing vote first
         try {
-          console.log('🔄 Attempting atomic vote function for logged-in user...');
-          const { data, error } = await supabase.rpc('add_vote', {
-            p_request_id: id,
-            p_user_id: currentUser!.id || currentUser!.name
-          });
-
-          if (error) throw error;
-          success = data === true;
-          console.log('✅ Atomic vote result:', success);
-        } catch (atomicError) {
-          console.warn('⚠️ Atomic function failed, using fallback method:', atomicError);
-          
-          // Fallback: Manual vote tracking
+          console.log('🔄 Checking for existing vote...');
           const userId = currentUser!.id || currentUser!.name;
+          
+          // Check if already voted using user_votes table or fallback method
           const { data: existingVote, error: voteCheckError } = await supabase
             .from('user_votes')
             .select('id')
@@ -967,14 +992,22 @@ function App() {
             .maybeSingle();
 
           if (voteCheckError && voteCheckError.code !== 'PGRST116') {
-            throw voteCheckError;
-          }
+            // user_votes table might not exist, try atomic function
+            console.log('🔄 user_votes check failed, trying atomic function...');
+            const { data, error } = await supabase.rpc('add_vote', {
+              p_request_id: id,
+              p_user_id: userId
+            });
 
-          if (existingVote) {
+            if (error) throw error;
+            success = data === true;
+            console.log('✅ Atomic vote result:', success);
+          } else if (existingVote) {
             console.log('❌ User already voted');
             success = false;
           } else {
             // Insert vote record and increment counter
+            console.log('📊 Adding new vote...');
             const { error: insertError } = await supabase
               .from('user_votes')
               .insert({
@@ -984,8 +1017,8 @@ function App() {
               });
 
             if (insertError) {
-              // If user_votes table doesn't exist, just increment the counter
-              console.log('📊 Fallback: Direct vote increment');
+              console.warn('user_votes insert failed, using direct increment:', insertError);
+              // Fallback: direct increment
               const currentRequest = requests.find(r => r.id === id);
               const newVoteCount = (currentRequest?.votes || 0) + 1;
               
@@ -1010,19 +1043,15 @@ function App() {
               success = true;
             }
           }
+        } catch (fallbackError) {
+          console.error('❌ Vote process failed:', fallbackError);
+          throw fallbackError;
         }
       }
 
       if (success) {
-        console.log('✅ Vote added successfully');
+        console.log('✅ Vote successful - real-time subscription will update UI instantly');
         toast.success(isKioskUser ? '🔥 Vote added!' : 'Vote added!');
-        
-        // Force immediate refresh to show updated vote count
-        setTimeout(() => {
-          console.log('🔄 Forcing immediate refresh after vote...');
-          reconnectRequests();
-        }, 100);
-        
         return true;
       } else {
         console.log('❌ Vote rejected - already voted');
@@ -1044,11 +1073,11 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline, requests, reconnectRequests]);
+  }, [currentUser, isOnline, requests]);
 
-  // 🚀 FIXED: Enhanced lock handler with fallback and immediate updates
+  // 🚀 INSTANT TICKER: Enhanced lock handler with immediate ticker updates
   const handleLockRequest = useCallback(async (id: string) => {
-    console.log('🔒 Toggling lock for request:', id);
+    console.log('🔒 INSTANT LOCK: Toggling lock for request:', id);
     
     if (!isOnline) {
       toast.error('Cannot update requests while offline. Please check your internet connection.');
@@ -1064,7 +1093,7 @@ function App() {
       
       // Toggle the locked status
       const newLockedState = !requestToUpdate.isLocked;
-      console.log(`Setting lock state to: ${newLockedState} for "${requestToUpdate.title}"`);
+      console.log(`🎯 INSTANT LOCK: Setting lock state to: ${newLockedState} for "${requestToUpdate.title}"`);
       
       // Try atomic database functions first, fallback to direct update
       try {
@@ -1080,18 +1109,21 @@ function App() {
           console.log('✅ Atomic unlock successful');
         }
       } catch (atomicError) {
-        console.warn('⚠️ Atomic lock function failed, using fallback method:', atomicError);
+        console.warn('⚠️ Atomic lock function failed, using INSTANT fallback method:', atomicError);
         
-        // Fallback: Direct database update
+        // INSTANT Fallback: Direct database update
         if (newLockedState) {
           // When locking, unlock all others first, then lock this one
-          console.log('🔄 Fallback: Unlocking all requests first...');
+          console.log('🔄 INSTANT Fallback: Unlocking all requests first...');
           await supabase
             .from('requests')
-            .update({ is_locked: false })
+            .update({ 
+              is_locked: false,
+              updated_at: new Date().toISOString()
+            })
             .neq('id', '00000000-0000-0000-0000-000000000000');
           
-          console.log('🔄 Fallback: Locking target request...');
+          console.log('🔄 INSTANT Fallback: Locking target request...');
           const { error: lockError } = await supabase
             .from('requests')
             .update({ 
@@ -1103,7 +1135,7 @@ function App() {
           if (lockError) throw lockError;
         } else {
           // When unlocking, just unlock this one
-          console.log('🔄 Fallback: Unlocking request...');
+          console.log('🔄 INSTANT Fallback: Unlocking request...');
           const { error: unlockError } = await supabase
             .from('requests')
             .update({ 
@@ -1116,27 +1148,25 @@ function App() {
         }
       }
       
-      // Force immediate refresh to update all components including ticker
-      setTimeout(() => {
-        console.log('🔄 Forcing immediate refresh after lock change...');
-        reconnectRequests();
-      }, 100);
-      
-      // Show success message
+      // Show success message immediately
       if (newLockedState) {
         toast.success(`🔒 "${requestToUpdate.title}" locked as next up!`);
-        console.log('🎯 Song locked - ticker should update');
+        console.log('🎯 TICKER UPDATE: Song locked - real-time will update ticker instantly across all users');
       } else {
         toast.success(`🔓 "${requestToUpdate.title}" unlocked`);
-        console.log('🎯 Song unlocked - ticker should clear');
+        console.log('🎯 TICKER UPDATE: Song unlocked - real-time will clear ticker instantly across all users');
       }
       
-      console.log('✅ Lock state updated successfully');
+      console.log('✅ INSTANT LOCK: Lock state updated - real-time subscription will handle UI updates');
+      
+      // Real-time subscription will handle the updates automatically
+      // No manual refresh needed - the lock change will trigger instant updates
+      
     } catch (error) {
       console.error('❌ Error toggling request lock:', error);
       toast.error('Failed to update request. Please try again.');
       
-      // Force a refresh to get the current state
+      // Force a refresh only on error
       reconnectRequests();
     }
   }, [mergedRequests, isOnline, reconnectRequests]);
@@ -1195,9 +1225,9 @@ function App() {
     }
   }, [isOnline, reconnectRequests]);
 
-  // Handle resetting the request queue
+  // 🚀 INSTANT CLEAR: Handle resetting the request queue with immediate global updates
   const handleResetQueue = useCallback(async () => {
-    console.log('🗑️ Resetting request queue');
+    console.log('🗑️ INSTANT CLEAR: Resetting request queue for ALL users');
     
     if (!isOnline) {
       toast.error('Cannot reset queue while offline. Please check your internet connection.');
@@ -1209,6 +1239,9 @@ function App() {
     }
 
     try {
+      console.log('🚨 EXECUTING INSTANT CLEAR - this will trigger real-time updates for all users');
+      
+      // Delete all requests - this will trigger real-time DELETE events for all users
       const { error } = await supabase
         .from('requests')
         .delete()
@@ -1216,15 +1249,23 @@ function App() {
 
       if (error) throw error;
       
-      // Clear optimistic requests
+      // Clear local optimistic requests immediately
       setOptimisticRequests(new Map());
-      console.log('✅ Queue cleared successfully (including optimistic states)');
-      toast.success('Queue cleared successfully!');
+      
+      console.log('✅ INSTANT CLEAR executed - real-time subscriptions will update all users instantly');
+      toast.success('🗑️ Queue cleared for all users!');
+      
+      // The real-time subscription will handle updating the UI for all users
+      // No manual refresh needed - DELETE events will trigger instant updates
+      
     } catch (error) {
       console.error('❌ Error clearing queue:', error);
       toast.error('Failed to clear queue. Please try again.');
+      
+      // Force refresh on error
+      reconnectRequests();
     }
-  }, [isOnline]);
+  }, [isOnline, reconnectRequests]);
 
   // Handle adding a new song
   const handleAddSong = useCallback((song: Omit<Song, 'id'>) => {
