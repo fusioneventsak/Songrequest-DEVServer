@@ -49,13 +49,14 @@ function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [requests, setRequestsState] = useState<SongRequest[]>([]);
   
-
-  
   // Debug wrapper for setRequests
   const setRequests = useCallback((newRequests: any) => {
     console.log('🔄 setRequests called with:', newRequests);
     if (Array.isArray(newRequests)) {
       console.log('📥 Setting requests to array of length:', newRequests.length);
+      newRequests.forEach((req, index) => {
+        console.log(`  ${index + 1}. ${req.title} (id: ${req.id}, played: ${req.isPlayed}, locked: ${req.isLocked})`);
+      });
     } else if (typeof newRequests === 'function') {
       console.log('📥 Setting requests with function');
     }
@@ -72,6 +73,9 @@ function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isAppActive, setIsAppActive] = useState(true);
   
+  // Add optimistic vote state (was missing!)
+  const [optimisticVotes, setOptimisticVotes] = useState<Map<string, number>>(new Map());
+  
   // Ref to track if component is mounted
   const mountedRef = useRef<boolean>(true);
   const requestInProgressRef = useRef(false);
@@ -85,17 +89,74 @@ function App() {
   const { isLoading: isFetchingRequests, reconnect: reconnectRequests } = useRequestSync(setRequests);
   const { isLoading: isFetchingSetLists, refetch: refreshSetLists } = useSetListSync(setSetLists);
 
-  // 🚀 Simple requests without optimistic updates - just real-time data
+  // 🚀 Enhanced mergedRequests with proper debugging and optimistic updates
   const mergedRequests = useMemo(() => {
-    console.log('🔀 App: Using real requests only:', {
-      realRequests: requests.length,
-      titles: requests.map(r => r.title)
+    console.log('🔀 App: Processing requests for components:', {
+      totalRequests: requests.length,
+      requestTitles: requests.map(r => `${r.title} (played: ${r.isPlayed}, locked: ${r.isLocked})`),
+      activeRequests: requests.filter(r => !r.isPlayed).length,
+      optimisticVotesCount: optimisticVotes.size
     });
 
-    return requests; // Just use real requests from database
+    // Ensure we have valid request data
+    if (!Array.isArray(requests)) {
+      console.warn('⚠️ Requests is not an array:', requests);
+      return [];
+    }
+
+    // Apply optimistic vote updates and ensure proper structure
+    const validRequests = requests.map(request => ({
+      ...request,
+      // Ensure required properties exist
+      id: request.id || 'unknown',
+      title: request.title || 'Unknown Song',
+      artist: request.artist || '',
+      requesters: Array.isArray(request.requesters) ? request.requesters : [],
+      votes: optimisticVotes.get(request.id) ?? (typeof request.votes === 'number' ? request.votes : 0),
+      isLocked: Boolean(request.isLocked),
+      isPlayed: Boolean(request.isPlayed),
+      status: request.status || 'pending',
+      createdAt: request.createdAt ? new Date(request.createdAt) : new Date()
+    }));
+
+    console.log('✅ Processed valid requests:', validRequests.length);
+    console.log('📊 Requests by status:', {
+      total: validRequests.length,
+      active: validRequests.filter(r => !r.isPlayed).length,
+      played: validRequests.filter(r => r.isPlayed).length,
+      locked: validRequests.filter(r => r.isLocked).length
+    });
+
+    return validRequests;
+  }, [requests, optimisticVotes]);
+
+  // Add debugging for when requests change
+  useEffect(() => {
+    console.log('🔄 App: requests state changed:', {
+      length: requests.length,
+      requests: requests.map(r => ({
+        id: r.id,
+        title: r.title,
+        isPlayed: r.isPlayed,
+        isLocked: r.isLocked,
+        votes: r.votes
+      }))
+    });
   }, [requests]);
 
-
+  // Add debugging for when mergedRequests change
+  useEffect(() => {
+    console.log('🔄 App: mergedRequests changed:', {
+      length: mergedRequests.length,
+      mergedRequests: mergedRequests.map(r => ({
+        id: r.id,
+        title: r.title,
+        isPlayed: r.isPlayed,
+        isLocked: r.isLocked,
+        votes: r.votes
+      }))
+    });
+  }, [mergedRequests]);
 
   // SUPABASE CONNECTION TEST
   useEffect(() => {
@@ -107,13 +168,14 @@ function App() {
       try {
         const { data, error } = await supabase
           .from('requests')
-          .select('id')
-          .limit(1);
+          .select('id, title, is_played, is_locked')
+          .limit(5);
         
         if (error) {
           console.error('❌ Supabase connection failed:', error);
         } else {
           console.log('✅ Supabase connection successful!');
+          console.log('📊 Sample requests from DB:', data);
         }
       } catch (connectionError) {
         console.error('❌ Connection test failed:', connectionError);
@@ -324,8 +386,10 @@ function App() {
     // Empty function to handle logo clicks
   }, []);
 
-  // 🚀 UPDATED: Simple song request submission without optimistic updates
+  // 🚀 Enhanced song request submission with better debugging
   const handleSubmitRequest = useCallback(async (data: RequestFormData): Promise<boolean> => {
+    console.log('🎵 Submitting request:', data);
+    
     if (requestInProgressRef.current) {
       console.log('Request already in progress, please wait...');
       toast.error('A request is already being processed. Please wait a moment and try again.');
@@ -350,6 +414,7 @@ function App() {
       let requestId: string;
 
       if (existingRequest) {
+        console.log('🔄 Adding to existing request:', existingRequest.id);
         requestId = existingRequest.id;
         
         // Add requester to existing request
@@ -365,6 +430,8 @@ function App() {
 
         if (requesterError) throw requesterError;
       } else {
+        console.log('✨ Creating new request for:', data.title);
+        
         // Create new request
         const { data: newRequest, error: requestError } = await supabase
           .from('requests')
@@ -400,10 +467,11 @@ function App() {
       }
 
       requestRetriesRef.current = 0;
+      console.log('✅ Request submitted successfully:', requestId);
       toast.success('Your request has been added to the queue!');
       return true;
     } catch (error) {
-      console.error('Error submitting request:', error);
+      console.error('❌ Error submitting request:', error);
       
       // Handle retries for network errors
       if (error instanceof Error && 
@@ -444,10 +512,12 @@ function App() {
     } finally {
       requestInProgressRef.current = false;
     }
-  }, [reconnectRequests, currentUser]);
+  }, [reconnectRequests]);
 
-  // 🚀 UPDATED: Enhanced vote handler with atomic database function and optimistic updates
+  // 🚀 Fixed vote handler with proper optimistic updates
   const handleVoteRequest = useCallback(async (id: string): Promise<boolean> => {
+    console.log('👍 Voting for request:', id);
+    
     if (!isOnline) {
       toast.error('Cannot vote while offline. Please check your internet connection.');
       return false;
@@ -479,6 +549,7 @@ function App() {
       if (error) throw error;
 
       if (data === true) {
+        console.log('✅ Vote added successfully');
         toast.success('Vote added!');
         
         // Keep optimistic vote for a moment, then let real data take over
@@ -495,6 +566,7 @@ function App() {
         
         return true;
       } else {
+        console.log('❌ Vote rejected - already voted');
         // Revert optimistic update if already voted
         setOptimisticVotes(prev => {
           const newMap = new Map(prev);
@@ -506,7 +578,7 @@ function App() {
         return false;
       }
     } catch (error) {
-      console.error('Error voting for request:', error);
+      console.error('❌ Error voting for request:', error);
       
       // Revert optimistic update on error
       setOptimisticVotes(prev => {
@@ -527,10 +599,12 @@ function App() {
       
       return false;
     }
-  }, [currentUser, isOnline]);
+  }, [currentUser, isOnline, requests, optimisticVotes]);
 
   // Handle locking a request (marking it as next)
   const handleLockRequest = useCallback(async (id: string) => {
+    console.log('🔒 Toggling lock for request:', id);
+    
     if (!isOnline) {
       toast.error('Cannot update requests while offline. Please check your internet connection.');
       return;
@@ -538,10 +612,14 @@ function App() {
     
     try {
       const requestToUpdate = mergedRequests.find(r => r.id === id);
-      if (!requestToUpdate) return;
+      if (!requestToUpdate) {
+        console.error('Request not found:', id);
+        return;
+      }
       
       // Toggle the locked status
       const newLockedState = !requestToUpdate.isLocked;
+      console.log(`Setting lock state to: ${newLockedState}`);
       
       // Use atomic database function for locking
       if (newLockedState) {
@@ -553,14 +631,18 @@ function App() {
         if (error) throw error;
         toast.success('Request unlocked.');
       }
+      
+      console.log('✅ Lock state updated successfully');
     } catch (error) {
-      console.error('Error toggling request lock:', error);
+      console.error('❌ Error toggling request lock:', error);
       toast.error('Failed to update request. Please try again.');
     }
   }, [mergedRequests, isOnline]);
 
   // Handle marking a request as played
   const handleMarkPlayed = useCallback(async (id: string) => {
+    console.log('✅ Marking request as played:', id);
+    
     if (!isOnline) {
       toast.error('Cannot update requests while offline. Please check your internet connection.');
       return;
@@ -577,15 +659,18 @@ function App() {
         .eq('id', id);
 
       if (error) throw error;
+      console.log('✅ Request marked as played successfully');
       toast.success('Request marked as played!');
     } catch (error) {
-      console.error('Error marking request as played:', error);
+      console.error('❌ Error marking request as played:', error);
       toast.error('Failed to update request. Please try again.');
     }
   }, [isOnline]);
 
   // Handle resetting the request queue
   const handleResetQueue = useCallback(async () => {
+    console.log('🗑️ Resetting request queue');
+    
     if (!isOnline) {
       toast.error('Cannot reset queue while offline. Please check your internet connection.');
       return;
@@ -603,10 +688,12 @@ function App() {
 
       if (error) throw error;
       
-      // No optimistic votes to clear
+      // Clear optimistic votes
+      setOptimisticVotes(new Map());
+      console.log('✅ Queue cleared successfully');
       toast.success('Queue cleared successfully!');
     } catch (error) {
-      console.error('Error clearing queue:', error);
+      console.error('❌ Error clearing queue:', error);
       toast.error('Failed to clear queue. Please try again.');
     }
   }, [isOnline]);
@@ -867,7 +954,7 @@ function App() {
       <ErrorBoundary>
         <KioskPage 
           songs={songs}
-          requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
+          requests={mergedRequests}
           activeSetList={activeSetList}
           onSubmitRequest={handleSubmitRequest}
           onVoteRequest={handleVoteRequest}
@@ -942,7 +1029,7 @@ function App() {
                   <div className="glass-effect rounded-lg p-6">
                     <h2 className="text-xl font-semibold neon-text mb-4">Current Request Queue</h2>
                     <QueueView 
-                      requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
+                      requests={mergedRequests}
                       onLockRequest={handleLockRequest}
                       onMarkPlayed={handleMarkPlayed}
                       onResetQueue={handleResetQueue}
@@ -1031,7 +1118,7 @@ function App() {
     <ErrorBoundary>
       <UserFrontend 
         songs={songs}
-        requests={mergedRequests} // 🚀 Now passing merged requests with optimistic updates
+        requests={mergedRequests}
         activeSetList={activeSetList}
         currentUser={currentUser}
         onSubmitRequest={handleSubmitRequest}
