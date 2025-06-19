@@ -202,6 +202,12 @@ export function UserFrontend({
       return false; // Already voting
     }
 
+    // Don't allow voting on optimistic (temporary) requests
+    if (requestId.startsWith('temp_')) {
+      toast.error('Please wait for the request to be processed before voting');
+      return false;
+    }
+
     setVotingStates(prev => new Set([...prev, requestId]));
 
     // Find current vote count
@@ -506,7 +512,8 @@ export function UserFrontend({
           song={selectedSong}
           onSubmit={async (data) => {
             console.log('📝 Modal onSubmit called with:', data);
-            return await handleRequestSong(selectedSong);
+            // The modal passes the form data, use onSubmitRequest instead
+            return await onSubmitRequest(data);
           }}
           currentUser={currentUser}
         />
